@@ -1,0 +1,19 @@
+{
+	admin off
+}
+https://fbi.com {
+	tls internal
+	respond `Welcome to FBI-PROXY`
+}
+https://*.fbi.com {
+	tls internal
+	@proxyhostport header_regexp service Host (.+?).fbi.com
+	reverse_proxy @proxyhostport http://fbi.com {
+		header_up Host {re.service.1}.fbi.com
+	}
+}
+http://*.fbi.com {
+	respond 502
+}
+
+# sites
