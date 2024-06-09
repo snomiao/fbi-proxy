@@ -1,0 +1,22 @@
+# route to hosts
+https://*.host1.fbi.com {
+	tls internal
+	@proxyhostport header_regexp service Host (.+?).host1.fbi.com
+	reverse_proxy @proxyhostport http://host1 {
+		header_up Host {re.service.1}.fbi.com
+	}
+}
+https://*.host2.fbi.com {
+	tls internal
+	@proxyhostport header_regexp service Host (.+?).host2.fbi.com
+	reverse_proxy @proxyhostport http://host2 {
+		header_up Host {re.service.1}.fbi.com
+	}
+}
+https://*.host3.fbi.com {
+	tls internal
+	@proxyhostport header_regexp service Host (.+?).host3.fbi.com
+	reverse_proxy @proxyhostport http://host3 {
+		header_up Host {re.service.1}.fbi.com
+	}
+}
