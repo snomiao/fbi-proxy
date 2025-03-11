@@ -1,6 +1,14 @@
 # fbi-proxy
 
-local prorxy
+configurable local Proxy generator
+
+Environment Defaults:
+
+```env
+LOCALHOST="fbi.com"
+SERVICES="localhost:5600"
+```
+
 
 ```
 
