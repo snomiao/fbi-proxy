@@ -1,12 +1,18 @@
 {
-  "name": "main",
+  "name": "fbi-proxy",
   "module": "index.mjs",
   "type": "module",
-  "private": true,
   "devDependencies": {
     "@types/bun": "latest"
   },
   "peerDependencies": {
     "typescript": "^5"
+  },
+  "dependencies": {
+    "@types/minimist": "^1.2.5",
+    "hot-memo": "^1.1.1",
+    "minimist": "^1.2.8",
+    "phpdie": "^1.7.0",
+    "yaml": "^2.8.0"
   }
 }

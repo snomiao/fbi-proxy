@@ -5,6 +5,5 @@ services:
     build: .
     image: snomiao/fbi-proxy
     volumes:
-      - ./services.yaml:/fbi/services.yaml
       - caddy_data:/etc/caddy/data
     network_mode: host
