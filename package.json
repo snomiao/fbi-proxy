@@ -14,5 +14,9 @@
     "minimist": "^1.2.8",
     "phpdie": "^1.7.0",
     "yaml": "^2.8.0"
+  },
+  "scripts": {},
+  "bin": {
+    "fbi-proxy": "src/cli.ts"
   }
 }
