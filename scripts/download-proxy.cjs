@@ -15,7 +15,7 @@ const RELEASE_URL = `https://github.com/${GITHUB_REPO}/releases/latest/download`
 function getPlatformBinary() {
   const platform = process.platform;
   const arch = process.arch;
-  
+
   if (platform === 'win32') {
     return 'proxy-windows-x64.exe';
   } else if (platform === 'darwin') {
@@ -23,7 +23,7 @@ function getPlatformBinary() {
   } else if (platform === 'linux') {
     return arch === 'arm64' ? 'proxy-linux-arm64' : 'proxy-linux-x64';
   }
-  
+
   throw new Error(`Unsupported platform: ${platform}-${arch}`);
 }
 
@@ -31,21 +31,21 @@ function downloadFile(url, dest) {
   return new Promise((resolve, reject) => {
     console.log(`Downloading ${url}...`);
     const file = fs.createWriteStream(dest);
-    
+
     https.get(url, (response) => {
       if (response.statusCode === 302 || response.statusCode === 301) {
         // Follow redirect
         downloadFile(response.headers.location, dest).then(resolve).catch(reject);
         return;
       }
-      
+
       if (response.statusCode !== 200) {
         reject(new Error(`Failed to download: ${response.statusCode}`));
         return;
       }
-      
+
       response.pipe(file);
-      
+
       file.on('finish', () => {
         file.close();
         // Make executable on Unix-like systems
@@ -74,10 +74,10 @@ async function downloadProxy() {
 
     const binaryName = getPlatformBinary();
     const downloadUrl = `${RELEASE_URL}/${binaryName}`;
-    
+
     await downloadFile(downloadUrl, PROXY_BINARY_PATH);
     console.log(`✅ Proxy binary downloaded to ${PROXY_BINARY_PATH}`);
-    
+
   } catch (error) {
     console.error('❌ Failed to download proxy binary:', error.message);
     console.log('');
@@ -88,7 +88,7 @@ async function downloadProxy() {
     console.log('');
     console.log('2. Download manually from GitHub releases');
     console.log('3. Use Docker: docker pull your-username/fbi-proxy');
-    
+
     // Don't exit with error - allow installation to continue
     process.exit(0);
   }

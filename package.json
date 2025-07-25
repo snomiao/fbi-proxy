@@ -28,7 +28,7 @@
     "build": "npm run build-proxy",
     "clean-proxy": "node scripts/clean-proxy.cjs",
     "dev": "bun --watch ts/cli.ts",
-    "postinstall": "node scripts/download-proxy.cjs",
+    "postinstall": "node scripts/build-or-download.cjs",
     "proxy:dev": "npm run build-proxy-dev && npm run start",
     "proxy:prod": "npm run build-proxy && npm run start",
     "start": "bun ts/cli.ts"
