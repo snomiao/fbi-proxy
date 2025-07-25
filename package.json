@@ -31,5 +31,6 @@
   },
   "bin": {
     "fbi-proxy": "ts/cli.ts"
-  }
+  },
+  "version": "1.0.0"
 }
