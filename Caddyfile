@@ -14,5 +14,6 @@
 	tls internal {
 		on_demand
 	}
-	reverse_proxy :{$PROX:24306}
+
+	reverse_proxy :{$FBIPROXY_PORT:24306}
 }

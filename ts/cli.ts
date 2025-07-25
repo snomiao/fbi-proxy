@@ -34,20 +34,68 @@ const getProxyPath = () => {
 };
 
 // assume caddy is installed, launch proxy server now
-const argv = minimist(process.argv.slice(2), {});
+const argv = minimist(process.argv.slice(2), {
+  default: {
+    dev: false,
+    d: false,
+    tls: "internal", // default to internal TLS
+  },
+  alias: {
+    dev: "d",
+    tls: "t",
+  },
+});
 console.log(argv);
+if (argv.help) {
+  console.log(`Usage: fbi-proxy [options]
+Options:
+  --dev, -d       Enable development mode
+  --tls, -t       Set TLS mode (internal|external)
+  --help          Show this help message
+`);
+  process.exit(0);
+}
+
+const isDev = argv.dev || argv.d || false;
 const PROXY_PORT = String(await getPort({ port: 24306 }));
 const proxyProcess = await hotMemo(async () => {
   console.log("Starting Rust proxy server");
 
-  // build and start the Rust proxy server
-  const p = exec(`cargo watch -x "run --bin proxy"`, {
-    env: {
-      ...process.env,
-      PROXY_PORT,
-    },
-    cwd: path.join(__dirname, "../rs"),
-  });
+  // TODO: in production, build and start the Rust proxy server
+  //       using `cargo build --release` and then run the binary
+  const p = await (async () => {
+    if (isDev) {
+      // TODO: consider switch to bacon, cargo install bacon
+      // in dev mode, use cargo watch to run the Rust proxy server
+      const p = exec(`cargo watch -x "run --bin proxy"`, {
+        env: {
+          ...process.env,
+          PROXY_PORT,
+        },
+        cwd: path.join(__dirname, "../rs"),
+      });
+      return p;
+    }
+
+    const rsTargetDir = path.join(__dirname, "../rs", "target", "release");
+    const proxyBinary = process.platform === "win32" ? "proxy.exe" : "proxy";
+    const proxyPath = path.join(rsTargetDir, proxyBinary);
+    if (!(await exists(proxyPath).catch(() => false))) {
+      console.error("Proxy binary not found at " + proxyPath);
+      console.error(
+        "Please build the Rust proxy server first using `cargo build --release`"
+      );
+      process.exit(1);
+    }
+    const p = exec(proxyPath, {
+      env: {
+        ...process.env,
+        PROXY_PORT, // Rust proxy server port
+      },
+    });
+    return p;
+  })();
+
   p.stdout?.pipe(process.stdout, { end: false });
   p.stderr?.pipe(process.stderr, { end: false });
   p.on("exit", (code) => {
@@ -55,7 +103,7 @@ const proxyProcess = await hotMemo(async () => {
     process.exit(code || 0);
   });
 
-  console.log("Rust proxy server started on port 24306");
+  console.log(`Rust proxy server started on port ${PROXY_PORT}`);
   return p;
 });
 
@@ -69,7 +117,7 @@ const caddyProcess = await hotMemo(async () => {
     process.exit(1);
   }
   console.log("Starting Caddy");
-  const p = exec(`caddy run --watch --config ${Caddyfile}`, {
+  const p = exec(`caddy run ${isDev ? "--watch" : ""} --config ${Caddyfile}`, {
     env: {
       ...process.env,
       PROXY_PORT, // Rust proxy server port
@@ -77,8 +125,8 @@ const caddyProcess = await hotMemo(async () => {
     },
     cwd: path.dirname(Caddyfile),
   });
-  p.stdout?.pipe(process.stdout, { end: false });
-  p.stderr?.pipe(process.stderr, { end: false });
+  // p.stdout?.pipe(process.stdout, { end: false });
+  // p.stderr?.pipe(process.stderr, { end: false });
   p.on("exit", (code) => process.exit(code || 0));
   console.log("Caddy started with config at " + Caddyfile);
   return p;
