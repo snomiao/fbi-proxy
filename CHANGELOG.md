@@ -1,3 +1,10 @@
+# [1.1.0](https://github.com/snomiao/fbi-proxy/compare/v1.0.0...v1.1.0) (2025-07-25)
+
+
+### Features
+
+* migrate from npm to bun in GitHub Actions workflow ([fe40560](https://github.com/snomiao/fbi-proxy/commit/fe405600af20f3268b1567399d2a3467f23d2337))
+
 # 1.0.0 (2025-07-25)
 
 
