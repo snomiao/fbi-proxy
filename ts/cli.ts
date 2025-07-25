@@ -22,7 +22,7 @@ const proxyProcess = await hotMemo(async () => {
   console.log("Starting Rust proxy server");
 
   // build and start the Rust proxy server
-  const p = exec(`cargo run --bin proxy`, {
+  const p = exec(`cargo watch -x "run --bin proxy"`, {
     env: {
       ...process.env,
       PROXY_PORT,
