@@ -5,6 +5,7 @@ import hotMemo from "hot-memo";
 import { exec } from "child_process";
 import path from "path";
 import { exists } from "fs/promises";
+import { existsSync } from "fs";
 
 // guide to install caddy
 if (!(await Bun.$`caddy --version`.text().catch(() => ""))) {
@@ -13,6 +14,24 @@ if (!(await Bun.$`caddy --version`.text().catch(() => ""))) {
   console.error(`For linux, try running:\n    sudo apt install caddy\n`);
   process.exit(1);
 }
+
+const getProxyPath = () => {
+  const root = Bun.fileURLToPath(import.meta.url) + "../";
+  const filename =
+    {
+      "darwin-arm64": "fbi-proxy-darwin",
+      "darwin-x64": "fbi-proxy-darwin",
+      "linux-arm64": "fbi-proxy-linux-arm64",
+      "linux-x64": "fbi-proxy-linux-x64",
+      "linux-x86_64": "fbi-proxy-linux-x64",
+      "win32-arm64": "fbi-proxy-windows-arm64.exe",
+      "win32-x64": "fbi-proxy-windows-x64.exe",
+    }[process.platform + "-" + process.arch] || "fbi-proxy-linux-x64";
+
+  return [path.join(root, "rs/target/release", filename)].find((e) =>
+    existsSync(e)
+  );
+};
 
 // assume caddy is installed, launch proxy server now
 const argv = minimist(process.argv.slice(2), {});
@@ -66,6 +85,7 @@ const caddyProcess = await hotMemo(async () => {
 });
 
 console.log("all done");
+
 const exit = () => {
   console.log("Shutting down...");
   proxyProcess?.kill?.();
