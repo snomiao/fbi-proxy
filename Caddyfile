@@ -14,5 +14,5 @@
 	tls internal {
 		on_demand
 	}
-	reverse_proxy :{$PROX}
+	reverse_proxy :{$PROX:24306}
 }

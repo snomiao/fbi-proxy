@@ -3,7 +3,11 @@
   "module": "cli.ts",
   "type": "module",
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "semantic-release": "^22.0.0",
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/git": "^10.0.1",
+    "@semantic-release/github": "^9.2.0"
   },
   "peerDependencies": {
     "typescript": "^5"
@@ -13,10 +17,22 @@
     "hot-memo": "^1.1.1",
     "minimist": "^1.2.8",
     "phpdie": "^1.7.0",
+    "rustup": "^1.0.10",
     "yaml": "^2.8.0"
   },
-  "scripts": {},
+  "scripts": {
+    "build-cli": "bun build ts/cli.ts --outdir dist",
+    "build-proxy-dev": "node scripts/build-or-download.cjs --dev",
+    "build-proxy": "node scripts/build-or-download.cjs",
+    "build": "npm run build-proxy",
+    "clean-proxy": "node scripts/clean-proxy.cjs",
+    "dev": "bun --watch ts/cli.ts",
+    "postinstall": "node scripts/download-proxy.cjs",
+    "proxy:dev": "npm run build-proxy-dev && npm run start",
+    "proxy:prod": "npm run build-proxy && npm run start",
+    "start": "bun ts/cli.ts"
+  },
   "bin": {
-    "fbi-proxy": "src/cli.ts"
+    "fbi-proxy": "ts/cli.ts"
   }
 }

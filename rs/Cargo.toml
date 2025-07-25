@@ -1,0 +1,19 @@
+[package]
+name = "fbi-proxy"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "proxy"
+path = "proxy.rs"
+
+[dependencies]
+# Using simpler dependencies that build reliably on Windows
+hyper = { version = "0.14", features = ["full"] }
+hyper-tungstenite = "0.11"
+tokio = { version = "1.0", features = ["full"] }
+tokio-tungstenite = "0.20"
+futures-util = "0.3"
+regex = "1.0"
+env_logger = "0.10"
+log = "0.4"
