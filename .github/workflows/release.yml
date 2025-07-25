@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - main
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
@@ -22,6 +25,9 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             binary_name: proxy-windows-x64.exe
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
+            binary_name: proxy-windows-arm64.exe
           - os: macos-latest
             target: x86_64-apple-darwin
             binary_name: proxy-macos-x64
@@ -69,6 +75,7 @@ jobs:
     name: Semantic Release
     needs: build
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
     steps:
       - uses: actions/checkout@v4

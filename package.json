@@ -14,23 +14,19 @@
   },
   "dependencies": {
     "@types/minimist": "^1.2.5",
-    "claude-code-execute": "^1.2.0",
+    "caddy-baron": "^3.0.2",
+    "get-port": "^7.1.0",
     "hot-memo": "^1.1.1",
     "minimist": "^1.2.8",
     "phpdie": "^1.7.0",
-    "rustup": "^1.0.10",
-    "yaml": "^2.8.0"
+    "rustup": "^1.0.10"
   },
   "scripts": {
     "build-cli": "bun build ts/cli.ts --outdir dist",
-    "build-proxy-dev": "node scripts/build-or-download.cjs --dev",
-    "build-proxy": "node scripts/build-or-download.cjs",
-    "build": "npm run build-proxy",
-    "clean-proxy": "node scripts/clean-proxy.cjs",
-    "dev": "bun --watch ts/cli.ts",
-    "postinstall": "node scripts/download-proxy.cjs",
-    "proxy:dev": "npm run build-proxy-dev && npm run start",
-    "proxy:prod": "npm run build-proxy && npm run start",
+    "build": "bun run build:rs && bun run build:ts",
+    "build:ts": "bun build ./ts/*.ts --outdir dist --target node --declaration",
+    "build:rs": "cd rs && cargo build --release",
+    "dev": "bun --hot ts/cli.ts",
     "start": "bun ts/cli.ts"
   },
   "bin": {
