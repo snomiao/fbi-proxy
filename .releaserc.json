@@ -20,7 +20,7 @@
       {
         "assets": [
           {
-            "path": "release/**",
+            "path": "release-flat/*",
             "label": "Binary releases"
           }
         ]
