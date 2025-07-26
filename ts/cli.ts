@@ -6,6 +6,7 @@ import { exec } from "child_process";
 import path from "path";
 import { exists } from "fs/promises";
 import { existsSync } from "fs";
+import { DIE } from "phpdie";
 
 // guide to install caddy
 if (!(await Bun.$`caddy --version`.text().catch(() => ""))) {
@@ -17,7 +18,7 @@ if (!(await Bun.$`caddy --version`.text().catch(() => ""))) {
 
 const getProxyPath = () => {
   const root = Bun.fileURLToPath(import.meta.url) + "../";
-  const filename =
+  const ciFilename =
     {
       "darwin-arm64": "fbi-proxy-darwin",
       "darwin-x64": "fbi-proxy-darwin",
@@ -28,9 +29,12 @@ const getProxyPath = () => {
       "win32-x64": "fbi-proxy-windows-x64.exe",
     }[process.platform + "-" + process.arch] || "fbi-proxy-linux-x64";
 
-  return [path.join(root, "rs/target/release", filename)].find((e) =>
+  return [path.join(root, "rs/target/release", ciFilename),
+  path.join(root, "rs/target/release", 'proxy'),
+  path.join(root, "rs/target/release", 'proxy.exe'),
+  ].find((e) =>
     existsSync(e)
-  );
+  ) || DIE('Proxy binary not found. Please build the Rust proxy server first using `cargo build --release`');
 };
 
 // assume caddy is installed, launch proxy server now
@@ -77,9 +81,7 @@ const proxyProcess = await hotMemo(async () => {
       return p;
     }
 
-    const rsTargetDir = path.join(__dirname, "../rs", "target", "release");
-    const proxyBinary = process.platform === "win32" ? "proxy.exe" : "proxy";
-    const proxyPath = path.join(rsTargetDir, proxyBinary);
+    const proxyPath = getProxyPath()
     if (!(await exists(proxyPath).catch(() => false))) {
       console.error("Proxy binary not found at " + proxyPath);
       console.error(
