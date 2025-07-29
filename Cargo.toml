@@ -1,7 +1,7 @@
 [package]
 name = "fbi-proxy"
-version = "0.1.0"
-edition = "2021"
+version = "0.1.1"
+edition = "2024"
 description = "A fast and flexible proxy server for intercepting and modifying HTTP/HTTPS requests"
 license = "MIT"
 repository = "https://github.com/snomiao/fbi-proxy"
