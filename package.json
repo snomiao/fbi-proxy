@@ -36,6 +36,7 @@
     "phpdie": "^1.7.0",
     "promise-all-properties": "^5.0.0",
     "sflow": "^1.23.0",
+    "ts-toolbelt": "^9.6.0",
     "tsa-composer": "^1.0.0",
     "zx": "^8.7.2"
   },

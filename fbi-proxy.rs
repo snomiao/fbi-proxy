@@ -16,7 +16,7 @@ pub struct FBIProxy {
     client: Client<hyper::client::HttpConnector>,
     number_regex: Regex,
 }
-/* 
+/*
 FBIProxy is a simple HTTP and WebSocket proxy server that supports port encoding in the Host header.
 
 parse incoming Host headers and convert them to a target URL format:
@@ -24,7 +24,7 @@ parse incoming Host headers and convert them to a target URL format:
 for localhost, it uses "localhost"
 
 rule1: number host goes to local port
-    - Host="3000" => localhost:3000 
+    - Host="3000" => localhost:3000
 
 rule1.2 host--port goes to host:port
     - Host="localhost--3000" => localhost:3000
@@ -79,9 +79,9 @@ impl FBIProxy {
         if parts.len() > 1 {
             // The last part is the main domain, everything before is subdomain
             let main_domain = parts.last().unwrap();
-            let subdomain_parts = &parts[..parts.len()-1];
+            let subdomain_parts = &parts[..parts.len() - 1];
             let subdomain = subdomain_parts.join(".");
-            
+
             // Target is the main domain on port 80
             let target_host = format!("{}:80", main_domain);
             // New host header is the subdomain
@@ -101,12 +101,19 @@ impl FBIProxy {
             .unwrap_or("localhost");
 
         let (target_host, new_host) = self.parse_host(host_header);
-        info!("Proxying {} {} -> {} (host: {})", req.method(), req.uri(), target_host, new_host);
-
+        info!(
+            "Proxying {} {} -> {} (host: {})",
+            req.method(),
+            req.uri(),
+            target_host,
+            new_host
+        );
 
         // Handle WebSocket upgrade requests
         if hyper_tungstenite::is_upgrade_request(&req) {
-            return self.handle_websocket_upgrade(req, &target_host, &new_host).await;
+            return self
+                .handle_websocket_upgrade(req, &target_host, &new_host)
+                .await;
         }
 
         // Build target URL for HTTP requests
@@ -145,7 +152,7 @@ impl FBIProxy {
         &self,
         req: Request<Body>,
         target_host: &str,
-        _new_host: &str,  // Currently not used for WebSocket connections, but kept for consistency
+        _new_host: &str, // Currently not used for WebSocket connections, but kept for consistency
     ) -> Result<Response<Body>, BoxError> {
         let uri = req.uri();
         let ws_url = format!(
@@ -279,6 +286,10 @@ pub async fn start_proxy_server(port: u16) -> Result<(), BoxError> {
     let server = Server::bind(&addr).serve(make_svc);
 
     info!("FBI Proxy server running on http://{}", addr);
+    println!("FBI Proxy listening on: http://{}", addr);
+    println!("⚠️  WARNING: Never expose FBI Proxy to the internet or unsafe networks!");
+    println!("   This proxy is designed for local development only.");
+    
     info!("Features: HTTP proxying + WebSocket forwarding + Port encoding");
 
     if let Err(e) = server.await {

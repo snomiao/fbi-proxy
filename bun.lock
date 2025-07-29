@@ -15,6 +15,7 @@
         "phpdie": "^1.7.0",
         "promise-all-properties": "^5.0.0",
         "sflow": "^1.23.0",
+        "ts-toolbelt": "^9.6.0",
         "tsa-composer": "^1.0.0",
         "zx": "^8.7.2",
       },
@@ -1021,6 +1022,8 @@
     "traverse": ["traverse@0.6.8", "", {}, "sha512-aXJDbk6SnumuaZSANd21XAo15ucCDE38H4fkqiGsc3MhCK+wOlZvLP9cB/TvpHT0mOyWgC4Z8EwRlzqYSUzdsA=="],
 
     "ts-essentials": ["ts-essentials@10.1.1", "", { "peerDependencies": { "typescript": ">=4.5.0" }, "optionalPeers": ["typescript"] }, "sha512-4aTB7KLHKmUvkjNj8V+EdnmuVTiECzn3K+zIbRthumvHu+j44x3w63xpfs0JL3NGIzGXqoQ7AV591xHO+XrOTw=="],
+
+    "ts-toolbelt": ["ts-toolbelt@9.6.0", "", {}, "sha512-nsZd8ZeNUzukXPlJmTBwUAuABDe/9qtVDelJeT/qW0ow3ZS3BsQJtNkan1802aM9Uf68/Y8ljw86Hu0h5IUW3w=="],
 
     "tsa-composer": ["tsa-composer@1.0.0", "", { "peerDependencies": { "typescript": "^5.8.3" } }, "sha512-7gLt0xNJLBBb6U2u+axXIUREdq0/2esw4oUBdJZzhwT0a7gqB+DwyCXZV3Rbh13XdpT/LqYthn4SQI3ys/7hqw=="],
 
