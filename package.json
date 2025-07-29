@@ -8,8 +8,11 @@
     "@semantic-release/github": "^9.2.0",
     "@types/bun": "latest",
     "@types/minimist": "^1.2.5",
-    "semantic-release": "^22.0.0",
-    "semantic-release-cargo": "^2.4.0"
+    "semantic-release-cargo": "^2.4.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.1.2",
+    "prettier": "^3.6.2",
+    "semantic-release": "^22.0.0"
   },
   "peerDependencies": {
     "typescript": "^5"
@@ -49,10 +52,19 @@
     "start": "run-p start:caddy start:rs",
     "start:caddy": "./caddy run",
     "start:rs": "",
-    "prepare": "bacon --version || cargo install bacon"
+    "prepare": "husky && bacon --version || cargo install bacon"
+  },
+  "lint-staged": {
+    "*.{ts,js}": [
+      "bun tsc --noEmit",
+      "bun --bun prettier --write"
+    ],
+    "*.{json,md,yml,yaml}": [
+      "bun --bun prettier --write"
+    ]
   },
   "bin": {
     "fbi-proxy": "dist/cli.js"
   },
-  "version": "1.1.0"
+  "version": "1.2.0"
 }
