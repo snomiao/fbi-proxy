@@ -1,23 +1,24 @@
 # Auto detect text files and perform LF normalization
-* text=auto
+* text=auto eol=lf
 
 # Explicitly declare text files you want to always be normalized and converted
-# to native line endings on checkout.
-*.ts text
-*.js text
-*.json text
-*.yml text
-*.yaml text
-*.md text
-*.txt text
+# to LF line endings on checkout.
+*.ts text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.toml text eol=lf
+*.rs text eol=lf
+*.lock text eol=lf
+Caddyfile text eol=lf
+Dockerfile text eol=lf
 *.sh text eol=lf
-*.bat text eol=crlf
 
-# Declare files that will always have CRLF line endings on checkout.
+# Only Windows batch files should use CRLF
 *.bat text eol=crlf
-
-# Declare files that will always have LF line endings on checkout.
-*.sh text eol=lf
 
 # Denote all files that are truly binary and should not be modified.
 *.png binary

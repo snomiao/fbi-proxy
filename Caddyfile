@@ -7,13 +7,41 @@
 	# on_demand_tls {
 	# 	ask http://localhost:{$PROX}/CHECK_TLS
 	# }
+	servers {
+		trusted_proxies static private_ranges
+		trusted_proxies_strict
+	}
+	# auto_https disable_redirects
 }
 
 # unwrap all https
-*, *.*, *.*.*, *.*.*.* {
+http://*, http://*.*, http://*.*.*, http://*.*.*.*, https://*, https://*.*, https://*.*.*, https://*.*.*.* {
 	tls internal {
 		on_demand
 	}
+	# match **.fbi.com use regex match against to host
+	@subhost {
+		header_regexp subhost Host ^((?:(.+)\.)?{$FBIHOST:fbi.com})$
+	}
+	@fullhost {
+		header_regexp fullhost Host ^(.+)$
+	}
+	# debug
+	# handle @subhost {
+	# 	respond "https://{re.subhost.1}{uri} => http://{re.subhost.2}{uri}"
+	# }
 
-	reverse_proxy :{$FBIPROXY_PORT:24306}
+	reverse_proxy @subhost :{$FBIPROXY_PORT:24306} {
+		# strip the fbi.com part from the host
+		header_up Host {re.subhost.2}
+		# header_up X-Forwarded-Host {re.subhost.1}
+	}
+	reverse_proxy @fullhost :{$FBIPROXY_PORT:24306} {
+		header_up Host {re.fullhost.1}
+	}
+
+	# 3000.amd.fbi.com => *.amd.fbi.com goes to amd.fbi.com with 3000.localhost host
+
+	# for all other hosts, 404
+	# respond 404
 }

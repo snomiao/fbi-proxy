@@ -2,10 +2,17 @@
 name = "fbi-proxy"
 version = "0.1.0"
 edition = "2021"
+description = "A fast and flexible proxy server for intercepting and modifying HTTP/HTTPS requests"
+license = "MIT"
+repository = "https://github.com/snomiao/fbi-proxy"
+homepage = "https://github.com/snomiao/fbi-proxy"
+documentation = "https://github.com/snomiao/fbi-proxy"
+keywords = ["proxy", "http", "https", "intercept", "network"]
+categories = ["network-programming", "web-programming"]
 
 [[bin]]
-name = "proxy"
-path = "proxy.rs"
+name = "fbi-proxy"
+path = "fbi-proxy.rs"
 
 [dependencies]
 # Using simpler dependencies that build reliably on Windows

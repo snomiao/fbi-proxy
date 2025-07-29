@@ -4,3 +4,7 @@ node_modules
 
 rs/target
 dist
+release
+
+# caddy binaries
+caddy*

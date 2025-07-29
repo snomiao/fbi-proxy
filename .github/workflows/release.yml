@@ -18,22 +18,22 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            binary_name: proxy-linux-x64
+            binary_name: fbi-proxy-linux-x64
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
-            binary_name: proxy-linux-arm64
+            binary_name: fbi-proxy-linux-arm64
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            binary_name: proxy-windows-x64.exe
+            binary_name: fbi-proxy-windows-x64.exe
           - os: windows-latest
             target: aarch64-pc-windows-msvc
-            binary_name: proxy-windows-arm64.exe
+            binary_name: fbi-proxy-windows-arm64.exe
           - os: macos-latest
             target: x86_64-apple-darwin
-            binary_name: proxy-macos-x64
+            binary_name: fbi-proxy-macos-x64
           - os: macos-latest
             target: aarch64-apple-darwin
-            binary_name: proxy-macos-arm64
+            binary_name: fbi-proxy-macos-arm64
 
     steps:
       - uses: actions/checkout@v4
@@ -59,9 +59,9 @@ jobs:
         run: |
           mkdir -p release
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            cp rs/target/${{ matrix.target }}/release/proxy.exe release/${{ matrix.binary_name }}
+            cp rs/target/${{ matrix.target }}/release/fbi-proxy.exe release/${{ matrix.binary_name }}
           else
-            cp rs/target/${{ matrix.target }}/release/proxy release/${{ matrix.binary_name }}
+            cp rs/target/${{ matrix.target }}/release/fbi-proxy release/${{ matrix.binary_name }}
             chmod +x release/${{ matrix.binary_name }}
           fi
 
@@ -106,9 +106,12 @@ jobs:
           mkdir -p release-flat
           find release -type f -exec cp {} release-flat/ \;
           ls -la release-flat/
+          rm -rf release
+          mv release-flat release
 
       - name: Run semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: bunx semantic-release

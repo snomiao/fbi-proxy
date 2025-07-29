@@ -3,34 +3,56 @@
   "module": "ts/cli.ts",
   "type": "module",
   "devDependencies": {
-    "@types/bun": "latest",
-    "semantic-release": "^22.0.0",
     "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/git": "^10.0.1",
-    "@semantic-release/github": "^9.2.0"
+    "@semantic-release/github": "^9.2.0",
+    "@types/bun": "latest",
+    "@types/minimist": "^1.2.5",
+    "semantic-release": "^22.0.0",
+    "semantic-release-cargo": "^2.4.0"
   },
   "peerDependencies": {
     "typescript": "^5"
   },
+  "files": [
+    "release",
+    "rs",
+    "ts",
+    "dist",
+    "Caddyfile"
+  ],
   "dependencies": {
-    "@types/minimist": "^1.2.5",
+    "@snomiao/caddy-baron": "^3.0.4",
+    "bun": "^1.2.19",
     "caddy-baron": "^3.0.2",
+    "from-node-stream": "^0.1.0",
     "get-port": "^7.1.0",
     "hot-memo": "^1.1.1",
     "minimist": "^1.2.8",
+    "npm-run-all": "^4.1.5",
     "phpdie": "^1.7.0",
-    "rustup": "^1.0.10"
+    "promise-all-properties": "^5.0.0",
+    "sflow": "^1.23.0",
+    "tsa-composer": "^1.0.0",
+    "zx": "^8.7.2"
   },
   "scripts": {
     "build-cli": "bun build ts/cli.ts --outdir dist",
     "build": "bun run build:rs && bun run build:ts",
-    "build:ts": "bun build ./ts/*.ts --outdir dist --target node --declaration",
-    "build:rs": "cd rs && cargo build --release",
-    "dev": "bun --hot ts/cli.ts",
-    "start": "bun ts/cli.ts"
+    "build:ts": "bun build ./ts/cli.ts --outdir dist --target node --declaration",
+    "build:rs": "bun ts/buildFbiProxy.ts",
+    "dev": "run-p dev:caddy dev:rs",
+    "dev:caddy": "./caddy run --watch",
+    "dev:ts": "bun --hot ts/cli.ts --dev",
+    "dev:rs": "cd rs && bacon run",
+    "dev:rs-watch": "cd rs && cargo watch -x run",
+    "start": "run-p start:caddy start:rs",
+    "start:caddy": "./caddy run",
+    "start:rs": "",
+    "prepare": "bacon --version || cargo install bacon"
   },
   "bin": {
-    "fbi-proxy": "ts/cli.ts"
+    "fbi-proxy": "dist/cli.js"
   },
   "version": "1.1.0"
 }
