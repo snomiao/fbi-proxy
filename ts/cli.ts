@@ -1,15 +1,8 @@
 #!/usr/bin/env bun
 import getPort from "get-port";
-import minimist from "minimist";
-import { exec, spawn } from "child_process";
-import path from "path";
-import tsaComposer from "tsa-composer";
-import { fromStdio } from "from-node-stream";
-import sflow from "sflow";
 import hotMemo from "hot-memo";
-import { exists } from "fs";
-import { getProxyFilename } from "./getProxyFilename";
-import { DIE } from "phpdie";
+import minimist from "minimist";
+import path from "path";
 import promiseAllProperties from "promise-all-properties";
 import { buildFbiProxy } from "./buildFbiProxy";
 import { $ } from "./dRun";
