@@ -1,3 +1,9 @@
+# [1.3.0](https://github.com/snomiao/fbi-proxy/compare/v1.2.0...v1.3.0) (2025-07-30)
+
+### Features
+
+- **package.json:** update build scripts to improve build process and add support for Rust binary ([29786b7](https://github.com/snomiao/fbi-proxy/commit/29786b77cc9b325fcd3f18cd6de0b73ca5c6fddb))
+
 # [1.2.0](https://github.com/snomiao/fbi-proxy/compare/v1.1.0...v1.2.0) (2025-07-26)
 
 ### Features
