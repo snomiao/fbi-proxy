@@ -1,3 +1,9 @@
+# [1.4.0](https://github.com/snomiao/fbi-proxy/compare/v1.3.0...v1.4.0) (2025-07-30)
+
+### Features
+
+- **package.json:** add start:js script to run the compiled JavaScript file ([9090937](https://github.com/snomiao/fbi-proxy/commit/909093789d713bb3e5f65b222461638e398f7dd0))
+
 # [1.3.0](https://github.com/snomiao/fbi-proxy/compare/v1.2.0...v1.3.0) (2025-07-30)
 
 ### Features
