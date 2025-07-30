@@ -1,4 +1,5 @@
 import fsp from "fs/promises";
+import { existsSync } from "fs";
 import { getProxyFilename } from "./getProxyFilename";
 import { copyFile } from "fs/promises";
 import { $ } from "./dRun";
@@ -16,16 +17,16 @@ export async function buildFbiProxy({ rebuild = false } = {}) {
   const built = `./target/release/fbi-proxy${isWin ? ".exe" : ""}`;
 
   // return built if exists
-  if (!rebuild && (await fsp.exists(built))) {
+  if (!rebuild && existsSync(built)) {
     return built;
   }
 
   // return release if exists
-  if (!rebuild && (await fsp.exists(release))) return release;
+  if (!rebuild && existsSync(release)) return release;
 
   // build and return built target
   await $`cargo build --release`;
-  if (await fsp.exists(built)) return built;
+  if (existsSync(built)) return built;
 
   throw new Error(
     "Oops, failed to build fbi-proxy binary. Please check your Rust setup.",

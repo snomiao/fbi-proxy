@@ -7,45 +7,17 @@ import tsaComposer from "tsa-composer";
 import { fromStdio } from "from-node-stream";
 import sflow from "sflow";
 import hotMemo from "hot-memo";
-import fsp from "fs/promises";
-import { exists, existsSync } from "fs";
+import { exists } from "fs";
 import { getProxyFilename } from "./getProxyFilename";
 import { DIE } from "phpdie";
 import promiseAllProperties from "promise-all-properties";
 import { buildFbiProxy } from "./buildFbiProxy";
 import { $ } from "./dRun";
+import { downloadCaddy } from "./downloadCaddy";
 
 process.chdir(path.resolve(__dirname, "..")); // Change to project root directory
 
 console.log("Preparing Binaries");
-
-const downloadCaddy = async () => {
-  // use pwdCaddy if already downloaded
-  const pwdCaddy = "./caddy";
-
-  // if ./caddy exists in pwd, return it
-  if (await fsp.exists(pwdCaddy)) return pwdCaddy;
-
-  // or use system caddy if installed, run `caddy --version` to check
-  if (await $`caddy --version`.catch(() => false)) {
-    return "caddy";
-  }
-
-  // or if system caddy is not installed, download caddy using caddy-baron
-  if (!existsSync(pwdCaddy)) {
-    // download latest caddy to ./caddy
-    console.log("Downloading Caddy...");
-    // @ts-ignore
-    await import("../node_modules/caddy-baron/index.mjs");
-
-    if (!existsSync(pwdCaddy))
-      throw new Error(
-        "Failed to download Caddy. Please install Caddy manually or check your network connection.",
-      );
-  }
-
-  return pwdCaddy;
-};
 
 const { proxy, caddy } = await promiseAllProperties({
   proxy: buildFbiProxy(),

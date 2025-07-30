@@ -52,6 +52,7 @@
     "dev:rs": "cd rs && bacon run",
     "dev:rs-watch": "cd rs && cargo watch -x run",
     "start": "bun ts/cli.ts",
+    "start:js": "node dist/cli.js",
     "start:caddy": "./caddy run",
     "start:rs": "./target/release/fbi-proxy",
     "prepare": "husky && bunx rustup && bacon --version || cargo install bacon"
