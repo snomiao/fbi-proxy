@@ -42,18 +42,19 @@
   },
   "scripts": {
     "build-cli": "bun build ts/cli.ts --outdir dist",
-    "build": "bun run build:rs && bun run build:ts",
-    "build:ts": "bun build ./ts/cli.ts --outdir dist --target node --declaration",
-    "build:rs": "bun ts/buildFbiProxy.ts",
+    "build": "run-p build:rs build:ts build:js",
+    "build:ts": "tsc",
+    "build:js": "bun build ./ts/cli.ts --outdir dist --target node",
+    "build:rs": "cargo build --release",
     "dev": "run-p dev:caddy dev:rs",
     "dev:caddy": "./caddy run --watch",
     "dev:ts": "bun --hot ts/cli.ts --dev",
     "dev:rs": "cd rs && bacon run",
     "dev:rs-watch": "cd rs && cargo watch -x run",
-    "start": "run-p start:caddy start:rs",
+    "start": "bun ts/cli.ts",
     "start:caddy": "./caddy run",
-    "start:rs": "",
-    "prepare": "husky && bacon --version || cargo install bacon"
+    "start:rs": "./target/release/fbi-proxy",
+    "prepare": "husky && bunx rustup && bacon --version || cargo install bacon"
   },
   "lint-staged": {
     "*.{ts,js}": [

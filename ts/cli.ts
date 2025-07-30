@@ -8,7 +8,7 @@ import { fromStdio } from "from-node-stream";
 import sflow from "sflow";
 import hotMemo from "hot-memo";
 import fsp from "fs/promises";
-import { existsSync } from "fs";
+import { exists, existsSync } from "fs";
 import { getProxyFilename } from "./getProxyFilename";
 import { DIE } from "phpdie";
 import promiseAllProperties from "promise-all-properties";
@@ -16,18 +16,18 @@ import { buildFbiProxy } from "./buildFbiProxy";
 import { $ } from "./dRun";
 
 process.chdir(path.resolve(__dirname, "..")); // Change to project root directory
+
 console.log("Preparing Binaries");
 
-const getCaddy = async () => {
+const downloadCaddy = async () => {
   // use pwdCaddy if already downloaded
   const pwdCaddy = "./caddy";
-  if (existsSync(pwdCaddy)) {
-    console.log("Using existing Caddy binary at " + pwdCaddy);
-    return pwdCaddy;
-  }
+
+  // if ./caddy exists in pwd, return it
+  if (await fsp.exists(pwdCaddy)) return pwdCaddy;
 
   // or use system caddy if installed, run `caddy --version` to check
-  if (await $`caddy --version`) {
+  if (await $`caddy --version`.catch(() => false)) {
     return "caddy";
   }
 
@@ -48,13 +48,11 @@ const getCaddy = async () => {
 };
 
 const { proxy, caddy } = await promiseAllProperties({
-  proxy:
-    (await buildFbiProxy()) ||
-    DIE("Failed to build proxy binary. Please check your Rust setup."),
-  caddy: await getCaddy(),
+  proxy: buildFbiProxy(),
+  caddy: downloadCaddy(),
 });
 
-console.log("running fbi-proxy", { caddy, proxy });
+console.log("Running fbi-proxy", JSON.stringify({ caddy, proxy }));
 
 // assume caddy is installed, launch proxy server now
 const argv = minimist(process.argv.slice(2), {
@@ -68,7 +66,7 @@ const argv = minimist(process.argv.slice(2), {
   },
   boolean: ["dev", "d", "help"],
 });
-console.log(argv);
+// console.log(argv);
 if (argv.help) {
   console.log(`Usage: fbi-proxy [options]
 Options:
