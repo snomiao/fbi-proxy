@@ -48,9 +48,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu
- 
+
       - name: Build binary
-        working-directory: rs
         run: |
           cargo build --release --target ${{ matrix.target }}
 
@@ -59,9 +58,9 @@ jobs:
         run: |
           mkdir -p release
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            cp rs/target/${{ matrix.target }}/release/fbi-proxy.exe release/${{ matrix.binary_name }}
+            cp target/${{ matrix.target }}/release/fbi-proxy.exe release/${{ matrix.binary_name }}
           else
-            cp rs/target/${{ matrix.target }}/release/fbi-proxy release/${{ matrix.binary_name }}
+            cp target/${{ matrix.target }}/release/fbi-proxy release/${{ matrix.binary_name }}
             chmod +x release/${{ matrix.binary_name }}
           fi
 
