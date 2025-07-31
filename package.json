@@ -24,10 +24,13 @@
     "dist",
     "Caddyfile"
   ],
+  "trustedDependencies": [
+    "@radically-straightforward/caddy"
+  ],
   "dependencies": {
+    "@radically-straightforward/caddy": "^2.0.6",
     "@snomiao/caddy-baron": "^3.0.4",
     "bun": "^1.2.19",
-    "caddy-baron": "^3.0.2",
     "from-node-stream": "^0.1.0",
     "get-port": "^7.1.0",
     "hot-memo": "^1.1.1",
@@ -55,7 +58,7 @@
     "start:js": "node dist/cli.js",
     "start:caddy": "./caddy run",
     "start:rs": "./target/release/fbi-proxy",
-    "prepare": "husky && bunx rustup && bacon --version || cargo install bacon"
+    "prepare": "husky"
   },
   "lint-staged": {
     "*.{ts,js}": [
