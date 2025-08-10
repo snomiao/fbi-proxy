@@ -309,13 +309,35 @@ fn main() {
 
     let matches = Command::new("fbi-proxy")
         .version("0.1.1")
-        .about("A fast and flexible proxy server for intercepting and modifying HTTP/HTTPS requests")
+        .about("A fast and flexible proxy server with smart host header parsing and WebSocket support")
+        .long_about(
+"FBI Proxy - A development proxy server with intelligent host header parsing
+
+FEATURES:
+  • HTTP and WebSocket proxying with bidirectional forwarding
+  • Smart host header parsing with multiple routing rules
+  • Port encoding support for easy local development
+  • Subdomain hoisting for multi-service architectures
+
+HOST PARSING RULES:
+  1. Number host → local port:     '3000' → localhost:3000
+  2. Host--port syntax:            'api--3000' → api:3000
+  3. Subdomain hoisting:           'api.service' → service:80 (host: api)
+  4. Default routing:              'localhost' → localhost:80
+
+EXAMPLES:
+  fbi-proxy                        # Start on 127.0.0.1:2432
+  fbi-proxy -p 8080               # Custom port
+  fbi-proxy -h 0.0.0.0 -p 3000   # Bind to all interfaces
+
+WARNING: This proxy is designed for local development only. Never expose to the internet!"
+        )
         .arg(
             Arg::new("port")
                 .short('p')
                 .long("port")
                 .value_name("PORT")
-                .help("Sets the port to listen on")
+                .help("Port to listen on (default: 2432)")
                 .default_value("2432")
         )
         .arg(
@@ -323,7 +345,7 @@ fn main() {
                 .short('h')
                 .long("host")
                 .value_name("HOST")
-                .help("Sets the host to bind to")
+                .help("Host/IP address to bind to (default: 127.0.0.1)")
                 .default_value("127.0.0.1")
         )
         .get_matches();
