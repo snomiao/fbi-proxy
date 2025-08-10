@@ -292,9 +292,9 @@ pub async fn start_proxy_server_with_host(host: &str, port: u16) -> Result<(), B
 
     info!("FBI Proxy server running on http://{}", addr);
     println!("FBI Proxy listening on: http://{}", addr);
-    println!("⚠️  WARNING: Never expose FBI Proxy to the internet or unsafe networks!");
-    println!("   This proxy is designed for local development only.");
-    
+    println!("⚠️ FBI-Proxy WARNING: ENSURE YOU KNOW WHAT YOU'RE DOING and be sure to set up an auth gateway before exposing to the internet");
+    println!("   This proxy is production ready but requires proper security measures.");
+
     info!("Features: HTTP proxying + WebSocket forwarding + Port encoding");
 
     if let Err(e) = server.await {
@@ -311,7 +311,7 @@ fn main() {
         .version("0.1.1")
         .about("A fast and flexible proxy server with smart host header parsing and WebSocket support")
         .long_about(
-"FBI Proxy - A development proxy server with intelligent host header parsing
+"FBI Proxy - A any-host-port reverse-proxy server with intelligent host header parsing
 
 FEATURES:
   • HTTP and WebSocket proxying with bidirectional forwarding
@@ -330,7 +330,14 @@ EXAMPLES:
   fbi-proxy -p 8080               # Custom port
   fbi-proxy -h 0.0.0.0 -p 3000   # Bind to all interfaces
 
-WARNING: This proxy is designed for local development only. Never expose to the internet!"
+TRY RUN:
+  # HOST_A:
+  npx serve --port 3000
+  fbi-proxy -h 0.0.0.0 -p 2432
+
+  # HOST_B:
+  curl http://HOST_A:2432 -H 'Host: localhost--3000'
+"
         )
         .arg(
             Arg::new("port")
