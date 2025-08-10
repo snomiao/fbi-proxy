@@ -1,3 +1,9 @@
+# [1.5.0](https://github.com/snomiao/fbi-proxy/compare/v1.4.0...v1.5.0) (2025-08-10)
+
+### Features
+
+- **Cargo.toml:** add clap dependency for command-line argument parsing to enhance user experience ([d7461f6](https://github.com/snomiao/fbi-proxy/commit/d7461f6926d252aa7c3a6121721964be76648e99))
+
 # [1.4.0](https://github.com/snomiao/fbi-proxy/compare/v1.3.0...v1.4.0) (2025-07-30)
 
 ### Features
