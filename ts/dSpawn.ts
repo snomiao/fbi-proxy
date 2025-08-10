@@ -15,17 +15,18 @@ type DRunProc = Promise<{
   process: ChildProcess;
 };
 
-const dRun = ({
+const dSpawn = ({
   cwd = process.cwd(),
   env = process.env as Record<string, string>,
 } = {}) =>
   tsaComposer(
-    (s: string | { raw: string }) =>
-      typeof s === "string"
+    // slot is un dividable
+    (slot: string | { raw: string }) =>
+      typeof slot === "string"
         ? {
-            raw: String(s), // todo: escape quotes
+            raw: String(slot), // todo: escape quotes
           }
-        : s,
+        : slot,
     (...slots): DRunProc => {
       try {
         // TODO: parse slots for quotes
@@ -106,7 +107,7 @@ const dRun = ({
     },
   );
 
-export const $ = Object.assign(dRun(), {
-  opt: dRun,
-  cwd: (path: string) => dRun({ cwd: path }),
+export const $ = Object.assign(dSpawn(), {
+  opt: dSpawn,
+  cwd: (path: string) => dSpawn({ cwd: path }),
 });

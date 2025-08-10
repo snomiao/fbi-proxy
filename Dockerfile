@@ -33,6 +33,6 @@ COPY Caddyfile ./
 # Install dependencies
 RUN npm install
 
-EXPOSE 24306 80 443
+EXPOSE 2432 80 443
 
 CMD ["bun", "src/cli.ts"]

@@ -1,3 +1,4 @@
+use clap::{Arg, Command};
 use futures_util::{SinkExt, StreamExt};
 use hyper::header::{HeaderValue, HOST};
 use hyper::service::{make_service_fn, service_fn};
@@ -275,7 +276,11 @@ async fn handle_connection(
 }
 
 pub async fn start_proxy_server(port: u16) -> Result<(), BoxError> {
-    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    start_proxy_server_with_host("127.0.0.1", port).await
+}
+
+pub async fn start_proxy_server_with_host(host: &str, port: u16) -> Result<(), BoxError> {
+    let addr: SocketAddr = format!("{}:{}", host, port).parse()?;
     let proxy = Arc::new(FBIProxy::new());
 
     let make_svc = make_service_fn(move |_conn| {
@@ -302,22 +307,45 @@ pub async fn start_proxy_server(port: u16) -> Result<(), BoxError> {
 fn main() {
     env_logger::init();
 
-    // Read port from environment variable, default to 24306
-    let port = std::env::var("FBIPROXY_PORT")
-        .unwrap_or_else(|_| "24306".to_string())
+    let matches = Command::new("fbi-proxy")
+        .version("0.1.1")
+        .about("A fast and flexible proxy server for intercepting and modifying HTTP/HTTPS requests")
+        .arg(
+            Arg::new("port")
+                .short('p')
+                .long("port")
+                .value_name("PORT")
+                .help("Sets the port to listen on")
+                .default_value("2432")
+        )
+        .arg(
+            Arg::new("host")
+                .short('h')
+                .long("host")
+                .value_name("HOST")
+                .help("Sets the host to bind to")
+                .default_value("127.0.0.1")
+        )
+        .get_matches();
+
+    let port = matches
+        .get_one::<String>("port")
+        .unwrap()
         .parse::<u16>()
         .unwrap_or_else(|_| {
-            error!("Invalid FBIPROXY_PORT value, using default 24306");
-            24306
+            error!("Invalid port value, using default 2432");
+            2432
         });
+
+    let host = matches.get_one::<String>("host").unwrap();
 
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
         info!(
-            "Starting FBI Proxy with Hyper + proper WebSocket forwarding on port {}",
-            port
+            "Starting FBI-Proxy with Hyper + proper WebSocket forwarding on {}:{}",
+            host, port
         );
-        if let Err(e) = start_proxy_server(port).await {
+        if let Err(e) = start_proxy_server_with_host(host, port).await {
             error!("Failed to start proxy server: {}", e);
         }
     });

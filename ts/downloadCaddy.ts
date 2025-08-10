@@ -1,6 +1,5 @@
 import { existsSync } from "fs";
-import fsp from "fs/promises";
-import { $ } from "./dRun";
+import { $ } from "./dSpawn";
 
 if (import.meta.main) {
   // if this file is run directly, download caddy

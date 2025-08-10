@@ -2,7 +2,7 @@ import fsp from "fs/promises";
 import { existsSync } from "fs";
 import { getProxyFilename } from "./getProxyFilename";
 import { copyFile } from "fs/promises";
-import { $ } from "./dRun";
+import { $ } from "./dSpawn";
 import { mkdir } from "fs/promises";
 
 if (import.meta.main) {

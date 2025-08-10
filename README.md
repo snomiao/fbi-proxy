@@ -2,26 +2,23 @@
 
 FBI Proxy provides easy HTTPS access to your local services with intelligent domain routing.
 
-## Quick Start
+## Usage
 
-```bash
-# Install dependencies
-bun install
+```sh
+# launch
+bunx fbi-proxy
 
-# Start development
-bun run dev
+# expose to LAN
+bunx fbi-proxy --host 0.0.0.0 --port=2432
 
-# Or production
-bun run build && bun run start
+# with caddy, forwarding *.fbi.com
+bunx fbi-proxy --caddy=fbi.com
+
+# or
+docker start
 ```
 
-## Prerequisites
-
-- **Bun**: https://bun.sh/
-- **Rust**: https://rustup.rs/
-- **Caddy**: Auto-downloaded if not found
-
-## Routing Examples
+### Routing Examples
 
 ```bash
 # Port forwarding
@@ -42,7 +39,26 @@ https://myserver.fbi.com    → myserver:80
 
 WebSocket connections are supported for all patterns.
 
-## Configuration
+## Development
+
+```bash
+# Install dependencies
+bun install
+
+# Start development
+bun run dev
+
+# Or production
+bun run build && bun run start
+```
+
+### Prerequisites
+
+- **Bun**: https://bun.sh/
+- **Rust**: https://rustup.rs/
+- **Caddy**: Auto-downloaded if not found
+
+### Configuration
 
 - Default domain: `fbi.com` (change with `--fbihost`)
 - Internal proxy port: Auto-assigned to `FBIPROXY_PORT`
