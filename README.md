@@ -1,6 +1,6 @@
 # fbi-proxy
 
-FBI Proxy provides easy HTTPS access to your local services with intelligent domain routing.
+FBI-Proxy provides easy HTTPS access to your local services with intelligent domain routing.
 
 ## Usage
 

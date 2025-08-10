@@ -1,0 +1,57 @@
+# GitHub Pages Configuration for FBI-Proxy Documentation
+
+# Site settings
+title: FBI-Proxy Documentation
+description: Easy HTTPS access to your local services with intelligent domain routing
+url: https://snomiao.github.io
+baseurl: /fbi-proxy
+
+# Theme
+theme: minima
+markdown: kramdown
+highlighter: rouge
+kramdown:
+  syntax_highlighter: rouge
+
+# Navigation
+header_pages:
+  - index.md
+  - installation.md
+  - usage.md
+  - development.md
+  - docker.md
+  - api.md
+  - troubleshooting.md
+
+# Plugins
+plugins:
+  - jekyll-feed
+  - jekyll-sitemap
+  - jekyll-seo-tag
+
+# Exclude files
+exclude:
+  - node_modules/
+  - .git/
+  - README.md
+
+# Site metadata
+author:
+  name: snomiao
+  email: snomiao@gmail.com
+
+github:
+  repository_url: https://github.com/snomiao/fbi-proxy
+
+# SEO
+twitter:
+  username: snomiao
+  card: summary
+
+logo: /assets/images/logo.png
+
+# Collections
+collections:
+  docs:
+    output: true
+    permalink: /:collection/:name/
