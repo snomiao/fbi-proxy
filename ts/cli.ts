@@ -74,7 +74,7 @@ if (argv.caddy) {
   });
 }
 
-console.log("all done");
+console.log("All services started successfully!");
 // show process pids
 console.log(`Proxy server PID: ${proxyProcess.pid}`);
 if (caddyProcess) {

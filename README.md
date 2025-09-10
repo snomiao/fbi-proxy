@@ -2,23 +2,7 @@
 
 FBI-Proxy provides easy HTTPS access to your local services with intelligent domain routing.
 
-## Usage
-
-```sh
-# launch
-bunx fbi-proxy
-
-# expose to LAN
-bunx fbi-proxy --host 0.0.0.0 --port=2432
-
-# with caddy, forwarding *.fbi.com
-bunx fbi-proxy --caddy=fbi.com
-
-# or
-docker start
-```
-
-### Routing Examples
+## Routing Examples
 
 ```bash
 # Port forwarding
@@ -38,6 +22,22 @@ https://myserver.fbi.com    → myserver:80
 ```
 
 WebSocket connections are supported for all patterns.
+
+## Usage
+
+```sh
+# launch
+bunx fbi-proxy
+
+# expose to LAN
+bunx fbi-proxy --host 0.0.0.0 --port=2432
+
+# with caddy, forwarding *.fbi.com
+bunx fbi-proxy --caddy=fbi.com
+
+# run with docker, forwarding *.your-domain.com to host.
+docker run --rm --name fbi-proxy --network=host -v caddy_data:/etc/caddy/data snomiao/fbi-proxy --reverse-proxy=your-domain.com
+```
 
 ## Development
 
@@ -60,8 +60,24 @@ bun run build && bun run start
 
 ### Configuration
 
+#### Environment Variables
+
+FBI-Proxy supports the following environment variables for configuration:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `FBI_PROXY_PORT` | Port for the proxy server to listen on | `2432` |
+| `FBI_PROXY_HOST` | Host/IP address to bind to | `127.0.0.1` |
+| `RUST_LOG` | Log level for the Rust proxy (error, warn, info, debug, trace) | `info` |
+| `FBIPROXY_PORT` | Internal proxy port (auto-assigned) | Auto |
+
+Command-line arguments take precedence over environment variables.
+
+#### CLI Options
+
 - Default domain: `fbi.com` (change with `--fbihost`)
-- Internal proxy port: Auto-assigned to `FBIPROXY_PORT`
+- Host binding: `--host` or `FBI_PROXY_HOST` env var
+- Port binding: `--port` or `FBI_PROXY_PORT` env var
 
 ## License
 

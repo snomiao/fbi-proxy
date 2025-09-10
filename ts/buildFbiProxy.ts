@@ -13,6 +13,12 @@ export async function buildFbiProxy({ rebuild = false } = {}) {
   const isWin = process.platform === "win32";
   const binaryName = getProxyFilename();
 
+  // Check for pre-built binary in Docker container
+  const dockerBinary = "/app/bin/fbi-proxy";
+  if (!rebuild && existsSync(dockerBinary)) {
+    return dockerBinary;
+  }
+
   const release = "./release/" + binaryName;
   const built = `./target/release/fbi-proxy${isWin ? ".exe" : ""}`;
 

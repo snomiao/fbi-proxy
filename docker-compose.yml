@@ -7,3 +7,29 @@ services:
     volumes:
       - caddy_data:/etc/caddy/data
     network_mode: host
+    environment:
+      - RUST_LOG=info
+    env_file:
+      - .env
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./ts
+          target: /app/ts
+          ignore:
+            - "*.log"
+            - "*.tmp"
+        - action: sync+restart
+          path: ./package.json
+          target: /app/package.json
+        - action: rebuild
+          path: ./rs
+          ignore:
+            - "target/"
+        - action: rebuild
+          path: ./Cargo.toml
+        # Removed Cargo.lock from watch to prevent loops
+        # - action: rebuild
+        #   path: ./Cargo.lock
+        - action: rebuild
+          path: ./Dockerfile

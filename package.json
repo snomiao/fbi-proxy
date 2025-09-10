@@ -1,66 +1,69 @@
 {
   "name": "fbi-proxy",
-  "module": "ts/cli.ts",
+  "version": "1.5.0",
+  "description": "FBI-Proxy provides easy HTTPS access to your local services with intelligent domain routing",
+  "keywords": [
+    "development-tools",
+    "http-proxy",
+    "proxy",
+    "reverse-proxy",
+    "websocket"
+  ],
+  "homepage": "https://github.com/snomiao/fbi-proxy#readme",
+  "bugs": {
+    "url": "https://github.com/snomiao/fbi-proxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/snomiao/fbi-proxy.git"
+  },
+  "license": "MIT",
+  "author": "snomiao",
   "type": "module",
+  "bin": {
+    "fbi-proxy": "dist/cli.js"
+  },
+  "files": [
+    "Caddyfile",
+    "dist",
+    "release",
+    "rs",
+    "ts"
+  ],
+  "scripts": {
+    "build": "bun run build:rs && bun run build:js",
+    "build:js": "bun build ./ts/cli.ts --outdir dist --target node",
+    "build:rs": "cargo build --release",
+    "dev": "bun --hot ts/cli.ts --dev",
+    "dev:rs": "cargo watch -x run",
+    "format": "prettier --write .",
+    "lint": "prettier --check .",
+    "prepare": "husky",
+    "start": "bun ts/cli.ts",
+    "start:rs": "./target/release/fbi-proxy"
+  },
+  "dependencies": {
+    "execa": "^9.6.0",
+    "from-node-stream": "^0.1.0",
+    "get-port": "^7.1.0",
+    "hot-memo": "^1.1.1",
+    "tsa-composer": "^1.0.0",
+    "yargs": "^17.7.2"
+  },
   "devDependencies": {
     "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/git": "^10.0.1",
     "@semantic-release/github": "^9.2.0",
     "@types/bun": "latest",
     "@types/minimist": "^1.2.5",
-    "semantic-release-cargo": "^2.4.0",
     "husky": "^9.1.7",
     "lint-staged": "^16.1.2",
     "prettier": "^3.6.2",
-    "semantic-release": "^22.0.0"
+    "semantic-release": "^22.0.0",
+    "semantic-release-cargo": "^2.4.0"
   },
-  "peerDependencies": {
-    "@snomiao/caddy-baron": "^3.0.4",
-    "typescript": "^5"
-  },
-  "files": [
-    "release",
-    "rs",
-    "ts",
-    "dist",
-    "Caddyfile"
-  ],
-  "trustedDependencies": [
-    "@radically-straightforward/caddy"
-  ],
-  "dependencies": {
-    "@radically-straightforward/caddy": "^2.0.6",
-    "bun": "^1.2.19",
-    "execa": "^9.6.0",
-    "from-node-stream": "^0.1.0",
-    "get-port": "^7.1.0",
-    "hot-memo": "^1.1.1",
-    "minimist": "^1.2.8",
-    "npm-run-all": "^4.1.5",
-    "phpdie": "^1.7.0",
-    "promise-all-properties": "^5.0.0",
-    "sflow": "^1.23.0",
-    "ts-toolbelt": "^9.6.0",
-    "tsa-composer": "^1.0.0",
-    "yargs": "^17.7.2",
-    "zx": "^8.7.2"
-  },
-  "scripts": {
-    "build-cli": "bun build ts/cli.ts --outdir dist",
-    "build": "run-p build:rs build:ts build:js",
-    "build:ts": "tsc",
-    "build:js": "bun build ./ts/cli.ts --outdir dist --target node",
-    "build:rs": "cargo build --release",
-    "dev": "run-p dev:caddy dev:rs",
-    "dev:caddy": "./caddy run --watch",
-    "dev:ts": "bun --hot ts/cli.ts --dev",
-    "dev:rs": "cd rs && bacon run",
-    "dev:rs-watch": "cd rs && cargo watch -x run",
-    "start": "bun ts/cli.ts",
-    "start:js": "node dist/cli.js",
-    "start:caddy": "./caddy run",
-    "start:rs": "./target/release/fbi-proxy",
-    "prepare": "husky"
+  "engines": {
+    "node": ">=18.0.0"
   },
   "lint-staged": {
     "*.{ts,js}": [
@@ -70,8 +73,7 @@
       "bun --bun prettier --write"
     ]
   },
-  "bin": {
-    "fbi-proxy": "dist/cli.js"
-  },
-  "version": "1.5.0"
+  "trustedDependencies": [
+    "@radically-straightforward/caddy"
+  ]
 }

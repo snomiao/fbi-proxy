@@ -1,0 +1,56 @@
+# Git files
+.git
+.gitignore
+
+# Documentation
+*.md
+LICENSE
+
+# Build artifacts
+target/
+dist/
+build/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Node modules (if any)
+node_modules/
+
+# Rust build cache
+**/*.rs.bk
+*.pdb
+
+# Docker files
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# Test files
+tests/
+test/
+*.test.*
+*.spec.*
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.log
