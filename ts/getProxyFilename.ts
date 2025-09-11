@@ -1,4 +1,4 @@
-export function getProxyFilename() {
+export function getFbiProxyFilename() {
     return {
         "darwin-arm64": "fbi-proxy-darwin",
         "darwin-x64": "fbi-proxy-darwin",

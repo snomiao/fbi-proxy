@@ -137,39 +137,32 @@ impl FBIProxy {
             .headers()
             .get(HOST)
             .and_then(|h| h.to_str().ok())
-            .unwrap_or("localhost");
+            .unwrap_or("localhost")
+            .to_string();
 
         // Parse host with domain filtering
-        let parsed_host = self.parse_host(host_header, &self.domain_filter);
+        let parsed_host = self.parse_host(&host_header, &self.domain_filter);
         
         // If domain filter rejects the host, return 502 Bad Gateway
         let (target_host, new_host) = match parsed_host {
             Some(hosts) => hosts,
             None => {
+                let method = req.method();
+                let uri = req.uri();
                 info!(
-                    "Request rejected: {} {} from Host: {} (domain filter: {:?})",
-                    req.method(),
-                    req.uri(),
+                    "{} {} => REJECTED{} 502",
+                    method,
                     host_header,
-                    self.domain_filter
+                    uri
                 );
                 return Ok(Response::builder()
                     .status(StatusCode::BAD_GATEWAY)
-                    .body(Body::from(format!("Bad Gateway: Host not allowed: {}", host_header)))?);
+                    .body(Body::from("Bad Gateway: Host not allowed"))?);
             }
         };
         
         let method = req.method().clone();
         let original_uri = req.uri().clone();
-        
-        info!(
-            "Processing request: {} {} from Host: {} -> Target: {} (New Host: {})",
-            method,
-            original_uri,
-            host_header,
-            target_host,
-            new_host
-        );
 
         // Handle WebSocket upgrade requests
         if hyper_tungstenite::is_upgrade_request(&req) {
@@ -194,22 +187,30 @@ impl FBIProxy {
         req.headers_mut().remove("content-encoding");
 
         // Forward the request
-        info!("Forwarding HTTP request to: {}", target_url);
         match self.client.request(req).await {
             Ok(mut response) => {
                 // Remove content-encoding header from response
                 response.headers_mut().remove("content-encoding");
                 let status = response.status();
-                info!("HTTP response: {} {} -> {} (Status: {})", method, target_url, status,
-                    if status.is_success() { "Success" }
-                    else if status.is_redirection() { "Redirect" }
-                    else if status.is_client_error() { "Client Error" }
-                    else if status.is_server_error() { "Server Error" }
-                    else { "Unknown" });
+                info!(
+                    "{} {}@{}{} {}",
+                    method,
+                    host_header,
+                    target_host,
+                    original_uri,
+                    status.as_u16()
+                );
                 Ok(response)
             }
             Err(e) => {
-                error!("Proxy error: {} {} -> {} - Error: {}", method, target_url, target_host, e);
+                error!(
+                    "{} {}@{}{} 502 ({})",
+                    method,
+                    host_header,
+                    target_host,
+                    original_uri,
+                    e
+                );
                 Ok(Response::builder()
                     .status(StatusCode::BAD_GATEWAY)
                     .body(Body::from("FBIPROXY ERROR"))?)
@@ -223,24 +224,21 @@ impl FBIProxy {
         target_host: &str,
         _new_host: &str, // Currently not used for WebSocket connections, but kept for consistency
     ) -> Result<Response<Body>, BoxError> {
-        let uri = req.uri();
+        let uri = req.uri().clone();
         let ws_url = format!(
             "ws://{}{}",
             target_host,
             uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/")
         );
 
-        info!("WebSocket upgrade to: {}", ws_url);
-
         // Upgrade the HTTP connection to WebSocket
         let (response, websocket) = hyper_tungstenite::upgrade(req, None)?;
 
         // Connect to upstream WebSocket
-        info!("Connecting to upstream WebSocket: {}", ws_url);
         let (upstream_ws, _) = match connect_async(&ws_url).await {
             Ok(ws) => ws,
             Err(e) => {
-                error!("Failed to connect to upstream WebSocket {}: {}", ws_url, e);
+                error!("WS :ws:{} => :ws:{}{} 502 ({})", target_host, target_host, uri, e);
                 return Ok(Response::builder()
                     .status(StatusCode::BAD_GATEWAY)
                     .body(Body::from("WebSocket connection failed"))?);
@@ -248,15 +246,14 @@ impl FBIProxy {
         };
 
         // Spawn task to handle WebSocket forwarding
-        info!("Starting WebSocket forwarding for: {}", ws_url);
-        let ws_url_clone = ws_url.clone();
+        // let ws_url_clone = ws_url.clone();
         tokio::spawn(async move {
             if let Err(e) = handle_websocket_forwarding(websocket, upstream_ws).await {
-                error!("WebSocket forwarding error for {}: {}", ws_url_clone, e);
+                error!("WebSocket forwarding error: {}", e);
             }
         });
 
-        info!("WebSocket upgrade successful for: {}", ws_url);
+        info!("WS :ws:{} => :ws:{}{} 101", target_host, target_host, uri);
         Ok(response)
     }
 }
@@ -271,26 +268,18 @@ async fn handle_websocket_forwarding(
     let (mut client_sink, mut client_stream) = client_ws.split();
     let (mut upstream_sink, mut upstream_stream) = upstream_ws.split();
 
-    info!("WebSocket connection established, starting bidirectional forwarding");
-
     // Forward messages from client to upstream
     let client_to_upstream = async {
         while let Some(msg) = client_stream.next().await {
             match msg {
                 Ok(msg) => {
-                    info!("Client -> Upstream: {:?}", msg);
-                    if let Err(e) = upstream_sink.send(msg).await {
-                        error!("Failed to forward message to upstream: {}", e);
+                    if let Err(_) = upstream_sink.send(msg).await {
                         break;
                     }
                 }
-                Err(e) => {
-                    error!("Error receiving from client: {}", e);
-                    break;
-                }
+                Err(_) => break,
             }
         }
-        info!("Client-to-upstream forwarding ended");
     };
 
     // Forward messages from upstream to client
@@ -298,32 +287,20 @@ async fn handle_websocket_forwarding(
         while let Some(msg) = upstream_stream.next().await {
             match msg {
                 Ok(msg) => {
-                    info!("Upstream -> Client: {:?}", msg);
-                    if let Err(e) = client_sink.send(msg).await {
-                        error!("Failed to forward message to client: {}", e);
+                    if let Err(_) = client_sink.send(msg).await {
                         break;
                     }
                 }
-                Err(e) => {
-                    error!("Error receiving from upstream: {}", e);
-                    break;
-                }
+                Err(_) => break,
             }
         }
-        info!("Upstream-to-client forwarding ended");
     };
 
     // Run both forwarding tasks concurrently
     tokio::select! {
-        _ = client_to_upstream => {
-            info!("Client disconnected");
-        }
-        _ = upstream_to_client => {
-            info!("Upstream disconnected");
-        }
+        _ = client_to_upstream => {},
+        _ = upstream_to_client => {},
     }
-
-    info!("WebSocket forwarding session ended");
     Ok(())
 }
 
@@ -331,24 +308,10 @@ async fn handle_connection(
     req: Request<Body>,
     proxy: Arc<FBIProxy>,
 ) -> Result<Response<Body>, Infallible> {
-    let method = req.method().clone();
-    let uri = req.uri().clone();
-    let host = req.headers()
-        .get(HOST)
-        .and_then(|h| h.to_str().ok())
-        .unwrap_or("unknown")
-        .to_string();
-    
-    info!("Incoming request: {} {} (Host: {})", method, uri, host);
-    
     match proxy.handle_request(req).await {
-        Ok(response) => {
-            let status = response.status();
-            info!("Request completed: {} {} -> {} (Host: {})", method, uri, status, host);
-            Ok(response)
-        },
+        Ok(response) => Ok(response),
         Err(e) => {
-            error!("Request handling error: {} {} (Host: {}) - Error: {}", method, uri, host, e);
+            error!("Request handling error: {}", e);
             Ok(Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .body(Body::from("Internal Server Error"))
@@ -369,9 +332,7 @@ pub async fn start_proxy_server_with_options(host: &str, port: u16, domain_filte
     let addr: SocketAddr = format!("{}:{}", host, port).parse()?;
     let proxy = Arc::new(FBIProxy::new(domain_filter.clone()));
 
-    let make_svc = make_service_fn(move |conn: &hyper::server::conn::AddrStream| {
-        let remote_addr = conn.remote_addr();
-        info!("New connection from: {}", remote_addr);
+    let make_svc = make_service_fn(move |_conn: &hyper::server::conn::AddrStream| {
         let proxy = proxy.clone();
         async move { Ok::<_, Infallible>(service_fn(move |req| handle_connection(req, proxy.clone()))) }
     });

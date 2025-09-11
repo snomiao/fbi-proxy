@@ -4,7 +4,7 @@ import hotMemo from "hot-memo";
 import path from "path";
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
-import { buildFbiProxy } from "./buildFbiProxy";
+import { getFbiProxyBinary } from "./buildFbiProxy";
 import { $ } from "./dSpawn";
 import { downloadCaddy } from "./downloadCaddy";
 import { execa } from "execa";
@@ -37,7 +37,7 @@ const FBIHOST = argv.fbihost;
 const FBIPROXY_PORT = String(await getPort({ port: 2432 }));
 
 const proxyProcess = await hotMemo(async () => {
-  const proxy = await buildFbiProxy();
+  const proxy = await getFbiProxyBinary();
   console.log("Starting Rust proxy server");
   const p = $.opt({
     env: {

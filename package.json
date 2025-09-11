@@ -47,6 +47,7 @@
     "from-node-stream": "^0.1.0",
     "get-port": "^7.1.0",
     "hot-memo": "^1.1.1",
+    "sflow": "^1.24.5",
     "tsa-composer": "^1.0.0",
     "yargs": "^17.7.2"
   },

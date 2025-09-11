@@ -1,17 +1,17 @@
 import fsp from "fs/promises";
 import { existsSync } from "fs";
-import { getProxyFilename } from "./getProxyFilename";
+import { getFbiProxyFilename } from "./getProxyFilename";
 import { copyFile } from "fs/promises";
 import { $ } from "./dSpawn";
 import { mkdir } from "fs/promises";
 
 if (import.meta.main) {
-  await buildFbiProxy();
+  await getFbiProxyBinary();
 }
 
-export async function buildFbiProxy({ rebuild = false } = {}) {
+export async function getFbiProxyBinary({ rebuild = false } = {}) {
   const isWin = process.platform === "win32";
-  const binaryName = getProxyFilename();
+  const binaryName = getFbiProxyFilename();
 
   // Check for pre-built binary in Docker container
   const dockerBinary = "/app/bin/fbi-proxy";
