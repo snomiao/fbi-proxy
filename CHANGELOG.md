@@ -1,3 +1,13 @@
+# [1.6.0](https://github.com/snomiao/fbi-proxy/compare/v1.5.0...v1.6.0) (2025-09-12)
+
+### Bug Fixes
+
+- pkg ts ([4701744](https://github.com/snomiao/fbi-proxy/commit/4701744a0eb64d46bd5c9b589569c7cabc9dc9a4))
+
+### Features
+
+- **proxy:** add domain filtering and comprehensive request logging ([683e235](https://github.com/snomiao/fbi-proxy/commit/683e23524330459e310123708596575b7843fefe))
+
 # [1.5.0](https://github.com/snomiao/fbi-proxy/compare/v1.4.0...v1.5.0) (2025-08-10)
 
 ### Features
