@@ -33,6 +33,7 @@
   "scripts": {
     "build": "bun run build:rs && bun run build:js",
     "build:js": "bun build ./ts/cli.ts --outdir dist --target node",
+    "build:ts": "tsc --noEmit",
     "build:rs": "cargo build --release",
     "dev": "bun --hot ts/cli.ts --dev",
     "dev:rs": "cargo watch -x run",
