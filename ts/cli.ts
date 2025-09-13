@@ -7,9 +7,8 @@ import { hideBin } from "yargs/helpers";
 import { getFbiProxyBinary } from "./buildFbiProxy";
 import { $ } from "./dSpawn";
 import { downloadCaddy } from "./downloadCaddy";
-import { execa } from "execa";
 
-process.chdir(path.resolve(__dirname, "..")); // Change to project root directory
+process.chdir(path.resolve(import.meta.dir, "..")); // Change to project root directory
 
 // Parse command line arguments with yargs
 const argv = await yargs(hideBin(process.argv))
