@@ -1,3 +1,9 @@
+## [1.6.1](https://github.com/snomiao/fbi-proxy/compare/v1.6.0...v1.6.1) (2025-09-13)
+
+### Bug Fixes
+
+- **cli.ts:** update process.chdir to use import.meta.dir for better compatibility with ES modules ([a747d1b](https://github.com/snomiao/fbi-proxy/commit/a747d1b545be865deafc7a888642974e622d2526))
+
 # [1.6.0](https://github.com/snomiao/fbi-proxy/compare/v1.5.0...v1.6.0) (2025-09-12)
 
 ### Bug Fixes
