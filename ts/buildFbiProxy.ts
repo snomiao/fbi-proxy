@@ -1,9 +1,7 @@
-import fsp from "fs/promises";
 import { existsSync } from "fs";
+import { chmod } from "fs/promises";
 import { getFbiProxyFilename } from "./getProxyFilename";
-import { copyFile } from "fs/promises";
 import { $ } from "./dSpawn";
-import { mkdir } from "fs/promises";
 
 if (import.meta.main) {
   await getFbiProxyBinary();
@@ -24,15 +22,25 @@ export async function getFbiProxyBinary({ rebuild = false } = {}) {
 
   // return built if exists
   if (!rebuild && existsSync(built)) {
+    // Ensure the binary has execute permissions
+    await chmod(built, 0o755).catch(() => {}); // Ignore errors if we can't change permissions
     return built;
   }
 
   // return release if exists
-  if (!rebuild && existsSync(release)) return release;
+  if (!rebuild && existsSync(release)) {
+    // Ensure the binary has execute permissions
+    await chmod(release, 0o755).catch(() => {}); // Ignore errors if we can't change permissions
+    return release;
+  }
 
   // build and return built target
   await $`cargo build --release`;
-  if (existsSync(built)) return built;
+  if (existsSync(built)) {
+    // Ensure the binary has execute permissions
+    await chmod(built, 0o755).catch(() => {}); // Ignore errors if we can't change permissions
+    return built;
+  }
 
   throw new Error(
     "Oops, failed to build fbi-proxy binary. Please check your Rust setup.",

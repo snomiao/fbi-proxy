@@ -106,6 +106,14 @@ jobs:
           rm -rf release
           mv release-flat release
 
+      - name: Set execute permissions for binaries
+        run: |
+          chmod +x release/fbi-proxy-linux-x64 || true
+          chmod +x release/fbi-proxy-linux-arm64 || true
+          chmod +x release/fbi-proxy-macos-x64 || true
+          chmod +x release/fbi-proxy-macos-arm64 || true
+          ls -la release/
+
       - name: Run semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

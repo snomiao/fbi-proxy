@@ -6,22 +6,11 @@ import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
 import { getFbiProxyBinary } from "./buildFbiProxy";
 import { $ } from "./dSpawn";
-import { downloadCaddy } from "./downloadCaddy";
 
 process.chdir(path.resolve(import.meta.dir, "..")); // Change to project root directory
 
 // Parse command line arguments with yargs
-const argv = await yargs(hideBin(process.argv))
-  .option("fbihost", {
-    type: "string",
-    default: "fbi.com",
-    description: "Set the FBI host",
-  })
-  .option("caddy", {
-    type: "boolean",
-    default: false,
-    description: "Start Caddy server",
-  })
+await yargs(hideBin(process.argv))
   .option("dev", {
     alias: "d",
     type: "boolean",
@@ -32,7 +21,6 @@ const argv = await yargs(hideBin(process.argv))
 
 console.log("Preparing Binaries");
 
-const FBIHOST = argv.fbihost;
 const FBIPROXY_PORT = String(await getPort({ port: 2432 }));
 
 const proxyProcess = await hotMemo(async () => {
@@ -52,40 +40,13 @@ const proxyProcess = await hotMemo(async () => {
   return p;
 });
 
-let caddyProcess: any = null;
-
-// Only start Caddy if --caddy flag is passed
-if (argv.caddy) {
-  const caddy = await downloadCaddy();
-  caddyProcess = await hotMemo(async () => {
-    const p = $.opt({
-      env: {
-        ...process.env,
-        FBIPROXY_PORT, // Rust proxy server port
-        FBIHOST,
-      },
-    })`${caddy} run`.process;
-    p.on("exit", (code) => {
-      console.log(`Caddy exited with code ${code}`);
-      process.exit(code || 0);
-    });
-    return p;
-  });
-}
-
 console.log("All services started successfully!");
-// show process pids
 console.log(`Proxy server PID: ${proxyProcess.pid}`);
-if (caddyProcess) {
-  console.log(`Caddy server PID: ${caddyProcess.pid}`);
-} else {
-  console.log("Caddy server not started (use --caddy to start it)");
-}
+console.log(`Proxy server running on port: ${FBIPROXY_PORT}`);
 
 const exit = () => {
   console.log("Shutting down...");
   proxyProcess?.kill?.();
-  caddyProcess?.kill?.();
   process.exit(0);
 };
 process.on("SIGINT", exit);

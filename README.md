@@ -32,12 +32,52 @@ bunx fbi-proxy
 # expose to LAN
 bunx fbi-proxy --host 0.0.0.0 --port=2432
 
-# with caddy, forwarding *.fbi.com
-bunx fbi-proxy --caddy=fbi.com
-
-# run with docker, forwarding *.your-domain.com to host.
-docker run --rm --name fbi-proxy --network=host -v caddy_data:/etc/caddy/data snomiao/fbi-proxy --reverse-proxy=your-domain.com
+# run with docker
+docker run --rm --name fbi-proxy --network=host snomiao/fbi-proxy
 ```
+
+## Using with Caddy (Optional)
+
+FBI-Proxy focuses on the core proxy functionality. For HTTPS and advanced routing, you can use Caddy as a reverse proxy:
+
+### Install Caddy
+
+```bash
+# macOS
+brew install caddy
+
+# Ubuntu/Debian
+sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+sudo apt update
+sudo apt install caddy
+
+# Or download from https://caddyserver.com/download
+```
+
+### Caddyfile Example
+
+Create a `Caddyfile` to route `*.fbi.com` to FBI-Proxy:
+
+```caddyfile
+*.fbi.com {
+    reverse_proxy localhost:2432
+    tls internal
+}
+```
+
+### Run Both Services
+
+```bash
+# Terminal 1: Start FBI-Proxy
+bunx fbi-proxy
+
+# Terminal 2: Start Caddy
+caddy run --config Caddyfile
+```
+
+Now you can access your services via HTTPS at `https://*.fbi.com`!
 
 ## Development
 
@@ -56,7 +96,6 @@ bun run build && bun run start
 
 - **Bun**: https://bun.sh/
 - **Rust**: https://rustup.rs/
-- **Caddy**: Auto-downloaded if not found
 
 ### Configuration
 

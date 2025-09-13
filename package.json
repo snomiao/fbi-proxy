@@ -24,7 +24,6 @@
     "fbi-proxy": "dist/cli.js"
   },
   "files": [
-    "Caddyfile",
     "dist",
     "release",
     "rs",
@@ -75,7 +74,5 @@
       "bun --bun prettier --write"
     ]
   },
-  "trustedDependencies": [
-    "@radically-straightforward/caddy"
-  ]
+  "trustedDependencies": []
 }
