@@ -1,3 +1,9 @@
+## [1.6.2](https://github.com/snomiao/fbi-proxy/compare/v1.6.1...v1.6.2) (2025-09-15)
+
+### Bug Fixes
+
+- preserve gzip compression between upstream and downstream ([d44369e](https://github.com/snomiao/fbi-proxy/commit/d44369e0b8ebcfd452950df289ef09f11259ff68))
+
 ## [1.6.1](https://github.com/snomiao/fbi-proxy/compare/v1.6.0...v1.6.1) (2025-09-13)
 
 ### Bug Fixes
