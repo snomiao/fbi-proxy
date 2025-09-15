@@ -85,14 +85,15 @@ USER fbiproxy
 
 # Set default environment variables
 ENV RUST_LOG=info
-ENV PORT=2432
+ENV FBI_PROXY_PORT=2432
 
 # Expose the port
-EXPOSE $PORT
+EXPOSE $FBI_PROXY_PORT
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD nc -z localhost $PORT || exit 1
+  CMD nc -z localhost $FBI_PROXY_PORT || exit 1
 
 # Run the FBI proxy
-ENTRYPOINT ["/usr/local/bin/fbi-proxy"]
+# ENTRYPOINT ["/usr/local/bin/fbi-proxy"]
+ENTRYPOINT ["fbi-proxy"]

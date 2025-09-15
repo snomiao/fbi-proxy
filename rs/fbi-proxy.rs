@@ -361,7 +361,7 @@ pub async fn start_proxy_server_with_options(host: &str, port: u16, domain_filte
 fn main() {
     env_logger::init();
 
-    let matches = Command::new("fbi-proxy")
+    let matches = Command::new(env!("CARGO_CRATE_NAME"))
         .version("0.1.1")
         .about("A fast and flexible proxy server with smart host header parsing and WebSocket support")
         .long_about(
