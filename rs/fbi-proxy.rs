@@ -184,13 +184,12 @@ impl FBIProxy {
         *req.uri_mut() = target_uri;
         req.headers_mut()
             .insert(HOST, HeaderValue::from_str(&new_host)?);
-        req.headers_mut().remove("content-encoding");
+        // Preserve content-encoding header to maintain compression
 
         // Forward the request
         match self.client.request(req).await {
-            Ok(mut response) => {
-                // Remove content-encoding header from response
-                response.headers_mut().remove("content-encoding");
+            Ok(response) => {
+                // Preserve content-encoding header in response to maintain compression
                 let status = response.status();
                 info!(
                     "{} {}@{}{} {}",
