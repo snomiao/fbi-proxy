@@ -2,6 +2,37 @@
 
 FBI-Proxy provides easy HTTPS access to your local services with intelligent domain routing.
 
+## Features
+
+### Current Features ✅
+
+- **Intelligent Domain Routing**: Multiple routing patterns for flexible service access
+  - Port-based routing (e.g., `3000.fbi.com` → `localhost:3000`)
+  - Host--Port routing (e.g., `api--3001.fbi.com` → `api:3001`)
+  - Subdomain routing with Host headers (e.g., `admin.app.fbi.com` → `app:80`)
+  - Direct host forwarding (e.g., `myserver.fbi.com` → `myserver:80`)
+- **WebSocket Support**: Full WebSocket connection support for all routing patterns
+- **High Performance**: Built with Rust for optimal performance and low resource usage
+- **Easy Setup**: Simple one-command installation and startup
+- **Docker Support**: Available as a Docker image for containerized deployments
+- **Flexible Configuration**: Environment variables and CLI options for customization
+- **Cross-Platform**: Works on macOS, Linux, and Windows
+- **Integration Ready**: Compatible with reverse proxies like Caddy for HTTPS
+
+## Roadmap
+
+### Next Up 🚧
+- [ ] **Configuration File Support** - YAML/JSON config for persistent routing rules
+- [ ] **Access Control** - Domain filtering, host/port whitelisting
+- [ ] **Request Logging** - Basic access logs for debugging
+- [ ] **Health Checks** - Simple upstream service availability monitoring
+
+### Future Improvements 🔮
+- [ ] **Load Balancing** - Round-robin between multiple upstream targets
+- [ ] **Metrics** - Basic statistics (requests, response times, errors)
+- [ ] **Hot Reload** - Update configuration without restart
+- [ ] **Custom Headers** - Add/modify headers for specific routes
+
 ## Routing Examples
 
 ```bash

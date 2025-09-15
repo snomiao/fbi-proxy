@@ -1,11 +1,7 @@
-volumes:
-  caddy_data:
 services:
   fbi-proxy:
     build: .
     image: snomiao/fbi-proxy
-    volumes:
-      - caddy_data:/etc/caddy/data
     network_mode: host
     environment:
       - RUST_LOG=info

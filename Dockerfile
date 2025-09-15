@@ -34,32 +34,65 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cargo build --release --target x86_64-unknown-linux-musl && \
     cp /app/target/x86_64-unknown-linux-musl/release/fbi-proxy /app/fbi-proxy
 
+
+
+# LEGACY
 # Runtime stage
 # FROM node:22-alpine
-FROM oven/bun:alpine
+# FROM oven/bun:alpine
 
-# Install Caddy and Bun
-RUN apk add --no-cache caddy curl bash
-RUN curl -fsSL https://bun.sh/install | bash
-ENV PATH="/root/.bun/bin:$PATH"
+# # Install Caddy and Bun
+# RUN apk add --no-cache caddy curl bash
+# RUN curl -fsSL https://bun.sh/install | bash
+# ENV PATH="/root/.bun/bin:$PATH"
+
+# WORKDIR /app
+
+# # Copy the built proxy binary
+# COPY --from=builder /app/fbi-proxy /app/bin/fbi-proxy
+# RUN chmod +x /app/bin/fbi-proxy
+
+# # Copy application files
+# COPY package.json ./
+# COPY ts/ ./ts/
+# COPY Caddyfile ./
+
+# # Install dependencies
+# RUN bun install
+
+# EXPOSE 2432 80 443
+
+# # Set default log level for Rust applications
+# ENV RUST_LOG=info
+
+# CMD ["bun", "ts/cli.ts"]
+
+
+# Runtime stage - minimal Alpine image for the Rust binary
+FROM alpine
+
+# Install runtime dependencies
+RUN apk add --no-cache ca-certificates
 
 WORKDIR /app
 
-# Copy the built proxy binary
-COPY --from=builder /app/fbi-proxy /app/bin/fbi-proxy
-RUN chmod +x /app/bin/fbi-proxy
+# Copy the statically linked binary from builder
+COPY --from=builder /app/fbi-proxy /usr/local/bin/fbi-proxy
 
-# Copy application files
-COPY package.json ./
-COPY ts/ ./ts/
-COPY Caddyfile ./
+# Create a non-root user to run the application
+RUN adduser -D -u 1000 fbiproxy
+USER fbiproxy
 
-# Install dependencies
-RUN bun install
-
-EXPOSE 2432 80 443
-
-# Set default log level for Rust applications
+# Set default environment variables
 ENV RUST_LOG=info
+ENV PORT=2432
 
-CMD ["bun", "ts/cli.ts"]
+# Expose the port
+EXPOSE $PORT
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD nc -z localhost $PORT || exit 1
+
+# Run the FBI proxy
+ENTRYPOINT ["/usr/local/bin/fbi-proxy"]
