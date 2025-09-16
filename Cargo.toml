@@ -16,12 +16,15 @@ path = "./rs/fbi-proxy.rs"
 
 [dependencies]
 # Using simpler dependencies that build reliably on Windows
-hyper = { version = "0.14", features = ["http1", "client", "server", "tcp"] }
-hyper-tungstenite = "0.11"
-tokio = { version = "1.0", features = ["rt-multi-thread", "macros", "net"] }
-tokio-tungstenite = "0.20"
+hyper = { version = "1.7", features = ["http1", "client", "server"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "server", "tokio", "http1"] }
+http-body-util = "0.1"
+hyper-tungstenite = "0.18"
+tokio = { version = "1.47", features = ["rt-multi-thread", "macros", "net", "io-util"] }
+tokio-tungstenite = "0.27"
 futures-util = "0.3"
-regex = "1.0"
-env_logger = "0.10"
+regex = "1.11"
+env_logger = "0.11"
 log = "0.4"
-clap = { version = "4.0", features = ["derive", "env"] }
+clap = { version = "4.5", features = ["derive", "env"] }
+tower = { version = "0.5", features = ["util"] }

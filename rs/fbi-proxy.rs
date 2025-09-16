@@ -1,20 +1,27 @@
 use clap::{Arg, Command};
 use futures_util::{SinkExt, StreamExt};
+use http_body_util::{BodyExt, Full};
+use hyper::body::{Bytes, Incoming};
 use hyper::header::{HeaderValue, HOST};
-use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Client, Request, Response, Server, StatusCode, Uri};
+use hyper::server::conn::http1;
+use hyper::service::service_fn;
+use hyper::{Request, Response, StatusCode, Uri};
 use hyper_tungstenite::{HyperWebsocket, WebSocketStream};
+use hyper_util::client::legacy::{Client, connect::HttpConnector};
+use hyper_util::rt::TokioIo;
 use log::{error, info};
 use regex::Regex;
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use tokio::net::TcpListener;
 use tokio_tungstenite::connect_async;
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
+type BoxBody = http_body_util::combinators::BoxBody<Bytes, hyper::Error>;
 
 pub struct FBIProxy {
-    client: Client<hyper::client::HttpConnector>,
+    client: Client<HttpConnector, BoxBody>,
     number_regex: Regex,
     domain_filter: Option<String>,
 }
@@ -51,8 +58,12 @@ for subdomains
 */
 impl FBIProxy {
     pub fn new(domain_filter: Option<String>) -> Self {
+        let connector = HttpConnector::new();
+        let client = Client::builder(hyper_util::rt::TokioExecutor::new())
+            .build(connector);
+
         Self {
-            client: Client::new(),
+            client,
             number_regex: Regex::new(r"^\d+$").unwrap(),
             domain_filter,
         }
@@ -131,7 +142,7 @@ impl FBIProxy {
         Some((format!("{}:80", host), host.to_string()))
     }
 
-    pub async fn handle_request(&self, mut req: Request<Body>) -> Result<Response<Body>, BoxError> {
+    pub async fn handle_request(&self, req: Request<Incoming>) -> Result<Response<BoxBody>, BoxError> {
         // Extract host from headers and process according to rules
         let host_header = req
             .headers()
@@ -157,7 +168,7 @@ impl FBIProxy {
                 );
                 return Ok(Response::builder()
                     .status(StatusCode::BAD_GATEWAY)
-                    .body(Body::from("Bad Gateway: Host not allowed"))?);
+                    .body(Full::new(Bytes::from("Bad Gateway: Host not allowed")).map_err(|e| match e {}).boxed())?);
             }
         };
         
@@ -180,14 +191,20 @@ impl FBIProxy {
         );
         let target_uri: Uri = target_url.parse()?;
 
+        // Convert incoming body to a format the client can use
+        let (mut parts, incoming_body) = req.into_parts();
+        let body = incoming_body.map_err(|e| e).boxed();
+
         // Update request URI and headers
-        *req.uri_mut() = target_uri;
-        req.headers_mut()
-            .insert(HOST, HeaderValue::from_str(&new_host)?);
+        parts.uri = target_uri;
+        parts.headers.insert(HOST, HeaderValue::from_str(&new_host)?);
         // Preserve content-encoding header to maintain compression
 
+        // Rebuild the request with the converted body
+        let new_req = Request::from_parts(parts, body);
+
         // Forward the request
-        match self.client.request(req).await {
+        match self.client.request(new_req).await {
             Ok(response) => {
                 // Preserve content-encoding header in response to maintain compression
                 let status = response.status();
@@ -199,7 +216,10 @@ impl FBIProxy {
                     original_uri,
                     status.as_u16()
                 );
-                Ok(response)
+                // Convert the response body back to BoxBody
+                let (parts, body) = response.into_parts();
+                let boxed_body = body.map_err(|e| e).boxed();
+                Ok(Response::from_parts(parts, boxed_body))
             }
             Err(e) => {
                 error!(
@@ -212,17 +232,17 @@ impl FBIProxy {
                 );
                 Ok(Response::builder()
                     .status(StatusCode::BAD_GATEWAY)
-                    .body(Body::from("FBIPROXY ERROR"))?)
+                    .body(Full::new(Bytes::from("FBIPROXY ERROR")).map_err(|e| match e {}).boxed())?)
             }
         }
     }
 
     async fn handle_websocket_upgrade(
         &self,
-        req: Request<Body>,
+        req: Request<Incoming>,
         target_host: &str,
         _new_host: &str, // Currently not used for WebSocket connections, but kept for consistency
-    ) -> Result<Response<Body>, BoxError> {
+    ) -> Result<Response<BoxBody>, BoxError> {
         let uri = req.uri().clone();
         let ws_url = format!(
             "ws://{}{}",
@@ -240,7 +260,7 @@ impl FBIProxy {
                 error!("WS :ws:{} => :ws:{}{} 502 ({})", target_host, target_host, uri, e);
                 return Ok(Response::builder()
                     .status(StatusCode::BAD_GATEWAY)
-                    .body(Body::from("WebSocket connection failed"))?);
+                    .body(Full::new(Bytes::from("WebSocket connection failed")).map_err(|e| match e {}).boxed())?);
             }
         };
 
@@ -253,7 +273,9 @@ impl FBIProxy {
         });
 
         info!("WS :ws:{} => :ws:{}{} 101", target_host, target_host, uri);
-        Ok(response)
+        let (parts, body) = response.into_parts();
+        let boxed_body = body.map_err(|_: std::convert::Infallible| unreachable!()).boxed();
+        Ok(Response::from_parts(parts, boxed_body))
     }
 }
 
@@ -304,39 +326,27 @@ async fn handle_websocket_forwarding(
 }
 
 async fn handle_connection(
-    req: Request<Body>,
+    req: Request<Incoming>,
     proxy: Arc<FBIProxy>,
-) -> Result<Response<Body>, Infallible> {
+) -> Result<Response<BoxBody>, Infallible> {
     match proxy.handle_request(req).await {
         Ok(response) => Ok(response),
         Err(e) => {
             error!("Request handling error: {}", e);
             Ok(Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::from("Internal Server Error"))
+                .body(Full::new(Bytes::from("Internal Server Error")).map_err(|e| match e {}).boxed())
                 .unwrap())
         }
     }
 }
 
-pub async fn start_proxy_server(port: u16) -> Result<(), BoxError> {
-    start_proxy_server_with_options("127.0.0.1", port, None).await
-}
-
-pub async fn start_proxy_server_with_host(host: &str, port: u16) -> Result<(), BoxError> {
-    start_proxy_server_with_options(host, port, None).await
-}
-
-pub async fn start_proxy_server_with_options(host: &str, port: u16, domain_filter: Option<String>) -> Result<(), BoxError> {
+pub async fn start_proxy_server(host: Option<&str>, port: u16, domain_filter: Option<String>) -> Result<(), BoxError> {
+    let host = host.unwrap_or("127.0.0.1");
     let addr: SocketAddr = format!("{}:{}", host, port).parse()?;
     let proxy = Arc::new(FBIProxy::new(domain_filter.clone()));
 
-    let make_svc = make_service_fn(move |_conn: &hyper::server::conn::AddrStream| {
-        let proxy = proxy.clone();
-        async move { Ok::<_, Infallible>(service_fn(move |req| handle_connection(req, proxy.clone()))) }
-    });
-
-    let server = Server::bind(&addr).serve(make_svc);
+    let listener = TcpListener::bind(addr).await?;
 
     info!("FBI Proxy server running on http://{}", addr);
     println!("FBI Proxy listening on: http://{}", addr);
@@ -350,11 +360,25 @@ pub async fn start_proxy_server_with_options(host: &str, port: u16, domain_filte
 
     info!("Features: HTTP proxying + WebSocket forwarding + Port encoding + Domain filtering");
 
-    if let Err(e) = server.await {
-        error!("Server error: {}", e);
-    }
+    loop {
+        let (stream, _) = listener.accept().await?;
+        let io = TokioIo::new(stream);
+        let proxy = proxy.clone();
 
-    Ok(())
+        tokio::task::spawn(async move {
+            let service = service_fn(move |req| handle_connection(req, proxy.clone()));
+
+            if let Err(err) = http1::Builder::new()
+                .preserve_header_case(true)
+                .title_case_headers(true)
+                .serve_connection(io, service)
+                .with_upgrades()
+                .await
+            {
+                error!("Error serving connection: {:?}", err);
+            }
+        });
+    }
 }
 
 fn main() {
@@ -453,7 +477,7 @@ TRY RUN:
             "Starting FBI-Proxy on {}:{} with domain filter: {:?}",
             host, port, domain_filter
         );
-        if let Err(e) = start_proxy_server_with_options(host, port, domain_filter).await {
+        if let Err(e) = start_proxy_server(Some(host), port, domain_filter).await {
             error!("Failed to start proxy server: {}", e);
         }
     });
