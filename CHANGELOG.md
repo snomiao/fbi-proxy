@@ -1,3 +1,9 @@
+# [1.7.0](https://github.com/snomiao/fbi-proxy/compare/v1.6.2...v1.7.0) (2025-09-16)
+
+### Features
+
+- upgrade Rust dependencies to latest versions ([7ce71b2](https://github.com/snomiao/fbi-proxy/commit/7ce71b2563d3762c8d5b4c13a98a22761e6b35a2))
+
 ## [1.6.2](https://github.com/snomiao/fbi-proxy/compare/v1.6.1...v1.6.2) (2025-09-15)
 
 ### Bug Fixes

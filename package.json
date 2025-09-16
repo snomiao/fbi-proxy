@@ -1,6 +1,6 @@
 {
   "name": "fbi-proxy",
-  "version": "1.6.2",
+  "version": "1.7.0",
   "description": "FBI-Proxy provides easy HTTPS access to your local services with intelligent domain routing",
   "keywords": [
     "development-tools",
