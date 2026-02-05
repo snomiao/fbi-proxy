@@ -40,7 +40,13 @@
     "lint": "prettier --check .",
     "prepare": "husky",
     "start": "bun ts/cli.ts",
-    "start:rs": "./target/release/fbi-proxy"
+    "start:rs": "./target/release/fbi-proxy",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui",
+    "test:e2e": "vitest run e2e",
+    "test:e2e:watch": "vitest e2e",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "execa": "^9.6.0",
@@ -57,11 +63,16 @@
     "@semantic-release/github": "^9.2.0",
     "@types/bun": "latest",
     "@types/minimist": "^1.2.5",
+    "@types/ws": "^8.18.1",
+    "@vitest/ui": "^3.2.4",
     "husky": "^9.1.7",
     "lint-staged": "^16.1.2",
+    "node-fetch": "^3.3.2",
     "prettier": "^3.6.2",
     "semantic-release": "^22.0.0",
-    "semantic-release-cargo": "^2.4.0"
+    "semantic-release-cargo": "^2.4.0",
+    "vitest": "^3.2.4",
+    "ws": "^8.18.3"
   },
   "engines": {
     "node": ">=18.0.0"
