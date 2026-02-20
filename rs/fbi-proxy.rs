@@ -14,7 +14,9 @@ use regex::Regex;
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::net::{TcpListener, TcpStream};
+use tokio::time::timeout;
 use tokio::io::copy_bidirectional;
 use tokio_tungstenite::connect_async;
 
@@ -59,7 +61,10 @@ for subdomains
 */
 impl FBIProxy {
     pub fn new(domain_filter: Option<String>) -> Self {
-        let connector = HttpConnector::new();
+        let mut connector = HttpConnector::new();
+        // Set connection timeout to 5 seconds to avoid hanging on invalid hosts
+        connector.set_connect_timeout(Some(Duration::from_secs(3)));
+
         let client = Client::builder(hyper_util::rt::TokioExecutor::new())
             .build(connector);
 
@@ -237,9 +242,14 @@ impl FBIProxy {
                 original_uri
             );
 
-            // Connect to upstream
-            match TcpStream::connect(&tunnel_target).await {
-                Ok(upstream) => {
+            // Connect to upstream with timeout
+            let connect_result = timeout(
+                Duration::from_secs(3),
+                TcpStream::connect(&tunnel_target)
+            ).await;
+
+            match connect_result {
+                Ok(Ok(upstream)) => {
                     // Spawn a task to handle the tunnel
                     tokio::spawn(async move {
                         // The upgrade happens after we return the response
@@ -265,7 +275,7 @@ impl FBIProxy {
                         .status(StatusCode::OK)
                         .body(Full::new(Bytes::new()).map_err(|e| match e {}).boxed())?);
                 }
-                Err(e) => {
+                Ok(Err(e)) => {
                     error!(
                         "CONNECT {}@{}{} 502 ({})",
                         host_header,
@@ -276,6 +286,17 @@ impl FBIProxy {
                     return Ok(Response::builder()
                         .status(StatusCode::BAD_GATEWAY)
                         .body(Full::new(Bytes::from("FBIPROXY CONNECT ERROR")).map_err(|e| match e {}).boxed())?);
+                }
+                Err(_) => {
+                    error!(
+                        "CONNECT {}@{}{} 502 (connection timeout)",
+                        host_header,
+                        tunnel_target,
+                        original_uri
+                    );
+                    return Ok(Response::builder()
+                        .status(StatusCode::BAD_GATEWAY)
+                        .body(Full::new(Bytes::from("FBIPROXY CONNECT TIMEOUT")).map_err(|e| match e {}).boxed())?);
                 }
             }
         }
@@ -308,9 +329,14 @@ impl FBIProxy {
         // Rebuild the request with the converted body
         let new_req = Request::from_parts(parts, body);
 
-        // Forward the request
-        match self.client.request(new_req).await {
-            Ok(response) => {
+        // Forward the request with timeout
+        let request_result = timeout(
+            Duration::from_secs(3),
+            self.client.request(new_req)
+        ).await;
+
+        match request_result {
+            Ok(Ok(response)) => {
                 // Preserve content-encoding header in response to maintain compression
                 let status = response.status();
                 info!(
@@ -326,7 +352,7 @@ impl FBIProxy {
                 let boxed_body = body.map_err(|e| e).boxed();
                 Ok(Response::from_parts(parts, boxed_body))
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 error!(
                     "{} {}@{}{} 502 ({})",
                     method,
@@ -338,6 +364,18 @@ impl FBIProxy {
                 Ok(Response::builder()
                     .status(StatusCode::BAD_GATEWAY)
                     .body(Full::new(Bytes::from("FBIPROXY ERROR")).map_err(|e| match e {}).boxed())?)
+            }
+            Err(_) => {
+                error!(
+                    "{} {}@{}{} 502 (request timeout)",
+                    method,
+                    host_header,
+                    target_host,
+                    original_uri
+                );
+                Ok(Response::builder()
+                    .status(StatusCode::BAD_GATEWAY)
+                    .body(Full::new(Bytes::from("FBIPROXY TIMEOUT")).map_err(|e| match e {}).boxed())?)
             }
         }
     }
