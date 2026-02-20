@@ -9,7 +9,7 @@ const __dirname = path.dirname(__filename);
 let proxyProcess: ChildProcess | null = null;
 let mockServerProcess: ChildProcess | null = null;
 
-export async function setup() {
+export default async function setup() {
   console.log("Setting up E2E test environment...");
 
   // Clear FBI Proxy environment variables to avoid interference with tests
@@ -27,8 +27,11 @@ export async function setup() {
 
   // Start mock HTTP server for testing
   console.log(`Starting mock server on port ${mockServerPort}...`);
-  mockServerProcess = spawn("node", [
-    "-e", `
+  mockServerProcess = spawn(
+    "node",
+    [
+      "-e",
+      `
     const http = require('http');
     const server = http.createServer((req, res) => {
       const body = JSON.stringify({
@@ -43,13 +46,15 @@ export async function setup() {
     server.listen(${mockServerPort}, () => {
       console.log('Mock server listening on port ${mockServerPort}');
     });
-    `
-  ], {
-    stdio: 'pipe'
-  });
+    `,
+    ],
+    {
+      stdio: "pipe",
+    },
+  );
 
   // Wait a bit for mock server to start
-  await new Promise(resolve => setTimeout(resolve, 1000));
+  await new Promise((resolve) => setTimeout(resolve, 1000));
 
   // Start the proxy server using the Rust binary
   console.log(`Starting proxy server on port ${proxyPort}...`);
@@ -58,15 +63,19 @@ export async function setup() {
   // Use the pre-built release binary to avoid compilation time
   const binaryPath = path.join(projectRoot, "target/release/fbi-proxy");
 
-  proxyProcess = spawn(binaryPath, ["-p", proxyPort.toString(), "-h", "127.0.0.1"], {
-    cwd: projectRoot,
-    stdio: 'pipe',
-    env: {
-      ...process.env,
-      RUST_LOG: "error", // Reduce log noise
-      FBI_PROXY_DOMAIN: "" // Clear domain filter for tests
-    }
-  });
+  proxyProcess = spawn(
+    binaryPath,
+    ["-p", proxyPort.toString(), "-h", "127.0.0.1"],
+    {
+      cwd: projectRoot,
+      stdio: "pipe",
+      env: {
+        ...process.env,
+        RUST_LOG: "error", // Reduce log noise
+        FBI_PROXY_DOMAIN: "", // Clear domain filter for tests
+      },
+    },
+  );
 
   // Wait for proxy to start (longer timeout)
   await new Promise((resolve, reject) => {
@@ -74,39 +83,40 @@ export async function setup() {
       reject(new Error("Proxy server failed to start within timeout"));
     }, 15000);
 
-    proxyProcess!.stdout!.on('data', (data) => {
+    proxyProcess!.stdout!.on("data", (data) => {
       const output = data.toString();
-      if (output.includes('FBI Proxy listening on')) {
+      if (output.includes("FBI Proxy listening on")) {
         clearTimeout(timeout);
         resolve(void 0);
       }
     });
 
-    proxyProcess!.stderr!.on('data', (data) => {
-      console.error('Proxy stderr:', data.toString());
+    proxyProcess!.stderr!.on("data", (data) => {
+      console.error("Proxy stderr:", data.toString());
     });
 
-    proxyProcess!.on('error', (err) => {
+    proxyProcess!.on("error", (err) => {
       clearTimeout(timeout);
       reject(err);
     });
   });
 
   console.log("E2E test environment ready!");
-}
 
-export async function teardown() {
-  console.log("Tearing down E2E test environment...");
+  // Return the teardown function (Vitest pattern)
+  return async function teardown() {
+    console.log("Tearing down E2E test environment...");
 
-  if (proxyProcess) {
-    proxyProcess.kill('SIGTERM');
-    proxyProcess = null;
-  }
+    if (proxyProcess) {
+      proxyProcess.kill("SIGTERM");
+      proxyProcess = null;
+    }
 
-  if (mockServerProcess) {
-    mockServerProcess.kill('SIGTERM');
-    mockServerProcess = null;
-  }
+    if (mockServerProcess) {
+      mockServerProcess.kill("SIGTERM");
+      mockServerProcess = null;
+    }
 
-  console.log("E2E test environment cleaned up!");
+    console.log("E2E test environment cleaned up!");
+  };
 }

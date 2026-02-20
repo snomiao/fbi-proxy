@@ -21,8 +21,11 @@ describe.skip("WebSocket Functionality", () => {
 
     // Start WebSocket test server
     console.log(`Starting WebSocket server on port ${wsServerPort}...`);
-    wsServerProcess = spawn("node", [
-      "-e", `
+    wsServerProcess = spawn(
+      "node",
+      [
+        "-e",
+        `
       const WebSocket = require('ws');
       const wss = new WebSocket.Server({ port: ${wsServerPort} });
 
@@ -53,10 +56,12 @@ describe.skip("WebSocket Functionality", () => {
       });
 
       console.log('WebSocket server listening on port ${wsServerPort}');
-      `
-    ], {
-      stdio: 'pipe'
-    });
+      `,
+      ],
+      {
+        stdio: "pipe",
+      },
+    );
 
     // Wait for WebSocket server to start
     await new Promise((resolve, reject) => {
@@ -64,14 +69,18 @@ describe.skip("WebSocket Functionality", () => {
         reject(new Error("WebSocket server failed to start"));
       }, 5000);
 
-      wsServerProcess!.stdout!.on('data', (data) => {
-        if (data.toString().includes(`WebSocket server listening on port ${wsServerPort}`)) {
+      wsServerProcess!.stdout!.on("data", (data) => {
+        if (
+          data
+            .toString()
+            .includes(`WebSocket server listening on port ${wsServerPort}`)
+        ) {
           clearTimeout(timeout);
           resolve(void 0);
         }
       });
 
-      wsServerProcess!.on('error', (err) => {
+      wsServerProcess!.on("error", (err) => {
         clearTimeout(timeout);
         reject(err);
       });
@@ -82,17 +91,18 @@ describe.skip("WebSocket Functionality", () => {
     const projectRoot = path.resolve(__dirname, "..");
     const binaryPath = path.join(projectRoot, "target/release/fbi-proxy");
 
-    proxyProcess = spawn(binaryPath, [
-      "-p", proxyPort.toString(),
-      "-h", "127.0.0.1"
-    ], {
-      stdio: 'pipe',
-      env: {
-        ...process.env,
-        RUST_LOG: "error",
-        FBI_PROXY_DOMAIN: "" // Clear domain filter for tests
-      }
-    });
+    proxyProcess = spawn(
+      binaryPath,
+      ["-p", proxyPort.toString(), "-h", "127.0.0.1"],
+      {
+        stdio: "pipe",
+        env: {
+          ...process.env,
+          RUST_LOG: "error",
+          FBI_PROXY_DOMAIN: "", // Clear domain filter for tests
+        },
+      },
+    );
 
     // Wait for proxy to start
     await new Promise((resolve, reject) => {
@@ -100,19 +110,19 @@ describe.skip("WebSocket Functionality", () => {
         reject(new Error("Proxy server failed to start"));
       }, 10000);
 
-      proxyProcess!.stdout!.on('data', (data) => {
+      proxyProcess!.stdout!.on("data", (data) => {
         const output = data.toString();
-        if (output.includes('FBI Proxy listening on')) {
+        if (output.includes("FBI Proxy listening on")) {
           clearTimeout(timeout);
           resolve(void 0);
         }
       });
 
-      proxyProcess!.stderr!.on('data', (data) => {
-        console.error('Proxy stderr:', data.toString());
+      proxyProcess!.stderr!.on("data", (data) => {
+        console.error("Proxy stderr:", data.toString());
       });
 
-      proxyProcess!.on('error', (err) => {
+      proxyProcess!.on("error", (err) => {
         clearTimeout(timeout);
         reject(err);
       });
@@ -121,20 +131,23 @@ describe.skip("WebSocket Functionality", () => {
 
   afterAll(async () => {
     if (proxyProcess) {
-      proxyProcess.kill('SIGTERM');
+      proxyProcess.kill("SIGTERM");
     }
     if (wsServerProcess) {
-      wsServerProcess.kill('SIGTERM');
+      wsServerProcess.kill("SIGTERM");
     }
   });
 
-  async function createWebSocketConnection(host: string, path: string = "/"): Promise<WebSocket> {
+  async function createWebSocketConnection(
+    host: string,
+    path: string = "/",
+  ): Promise<WebSocket> {
     const wsUrl = `ws://127.0.0.1:${proxyPort}${path}`;
 
     const ws = new WebSocket(wsUrl, {
       headers: {
-        Host: host
-      }
+        Host: host,
+      },
     });
 
     return new Promise((resolve, reject) => {
@@ -142,12 +155,12 @@ describe.skip("WebSocket Functionality", () => {
         reject(new Error("WebSocket connection timeout"));
       }, 5000);
 
-      ws.on('open', () => {
+      ws.on("open", () => {
         clearTimeout(timeout);
         resolve(ws);
       });
 
-      ws.on('error', (err) => {
+      ws.on("error", (err) => {
         clearTimeout(timeout);
         reject(err);
       });
@@ -163,15 +176,15 @@ describe.skip("WebSocket Functionality", () => {
           reject(new Error("Welcome message timeout"));
         }, 3000);
 
-        ws.once('message', (data) => {
+        ws.once("message", (data) => {
           clearTimeout(timeout);
           resolve(JSON.parse(data.toString()));
         });
       });
 
       expect(welcomeMessage).toMatchObject({
-        type: 'welcome',
-        message: 'WebSocket server connected'
+        type: "welcome",
+        message: "WebSocket server connected",
       });
 
       ws.close();
@@ -181,14 +194,14 @@ describe.skip("WebSocket Functionality", () => {
       const ws = await createWebSocketConnection(wsServerPort.toString());
 
       // Skip welcome message
-      await new Promise(resolve => {
-        ws.once('message', resolve);
+      await new Promise((resolve) => {
+        ws.once("message", resolve);
       });
 
       const testMessage = {
-        type: 'test',
-        data: 'Hello WebSocket!',
-        timestamp: Date.now()
+        type: "test",
+        data: "Hello WebSocket!",
+        timestamp: Date.now(),
       };
 
       ws.send(JSON.stringify(testMessage));
@@ -198,15 +211,15 @@ describe.skip("WebSocket Functionality", () => {
           reject(new Error("Echo response timeout"));
         }, 3000);
 
-        ws.once('message', (data) => {
+        ws.once("message", (data) => {
           clearTimeout(timeout);
           resolve(JSON.parse(data.toString()));
         });
       });
 
       expect(response).toMatchObject({
-        type: 'echo',
-        original: testMessage
+        type: "echo",
+        original: testMessage,
       });
 
       ws.close();
@@ -216,18 +229,20 @@ describe.skip("WebSocket Functionality", () => {
       const connections = await Promise.all([
         createWebSocketConnection(wsServerPort.toString(), "/client1"),
         createWebSocketConnection(wsServerPort.toString(), "/client2"),
-        createWebSocketConnection(wsServerPort.toString(), "/client3")
+        createWebSocketConnection(wsServerPort.toString(), "/client3"),
       ]);
 
       // Skip welcome messages
-      await Promise.all(connections.map(ws =>
-        new Promise(resolve => ws.once('message', resolve))
-      ));
+      await Promise.all(
+        connections.map(
+          (ws) => new Promise((resolve) => ws.once("message", resolve)),
+        ),
+      );
 
       const messages = connections.map((_, i) => ({
-        type: 'test',
+        type: "test",
         client: `client${i + 1}`,
-        data: `Message from client ${i + 1}`
+        data: `Message from client ${i + 1}`,
       }));
 
       // Send messages from each client
@@ -236,100 +251,114 @@ describe.skip("WebSocket Functionality", () => {
       });
 
       // Receive responses
-      const responses = await Promise.all(connections.map(ws =>
-        new Promise((resolve, reject) => {
-          const timeout = setTimeout(() => {
-            reject(new Error("Response timeout"));
-          }, 3000);
+      const responses = await Promise.all(
+        connections.map(
+          (ws) =>
+            new Promise((resolve, reject) => {
+              const timeout = setTimeout(() => {
+                reject(new Error("Response timeout"));
+              }, 3000);
 
-          ws.once('message', (data) => {
-            clearTimeout(timeout);
-            resolve(JSON.parse(data.toString()));
-          });
-        })
-      ));
+              ws.once("message", (data) => {
+                clearTimeout(timeout);
+                resolve(JSON.parse(data.toString()));
+              });
+            }),
+        ),
+      );
 
       // Verify each response matches its original message
       responses.forEach((response, i) => {
         expect(response).toMatchObject({
-          type: 'echo',
-          original: messages[i]
+          type: "echo",
+          original: messages[i],
         });
       });
 
       // Close all connections
-      connections.forEach(ws => ws.close());
+      connections.forEach((ws) => ws.close());
     });
 
     it("should handle WebSocket connection errors gracefully", async () => {
       // Try to connect to non-existent WebSocket server
       const wsUrl = `ws://127.0.0.1:${proxyPort}/nonexistent`;
 
-      await expect((async () => {
-        const ws = new WebSocket(wsUrl, {
-          headers: {
-            Host: "9999" // Non-existent port
-          }
-        });
-
-        await new Promise((resolve, reject) => {
-          const timeout = setTimeout(() => {
-            reject(new Error("Connection should have failed"));
-          }, 3000);
-
-          ws.on('open', () => {
-            clearTimeout(timeout);
-            reject(new Error("Connection should not have succeeded"));
+      await expect(
+        (async () => {
+          const ws = new WebSocket(wsUrl, {
+            headers: {
+              Host: "9999", // Non-existent port
+            },
           });
 
-          ws.on('error', (err) => {
-            clearTimeout(timeout);
-            reject(err); // Should reject on error
-          });
+          await new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+              reject(new Error("Connection should have failed"));
+            }, 3000);
 
-          ws.on('close', (code) => {
-            clearTimeout(timeout);
-            if (code !== 1000) { // Not normal closure
-              reject(new Error(`Connection closed with code ${code}`));
-            } else {
-              reject(new Error("Connection closed normally when it should have failed"));
-            }
+            ws.on("open", () => {
+              clearTimeout(timeout);
+              reject(new Error("Connection should not have succeeded"));
+            });
+
+            ws.on("error", (err) => {
+              clearTimeout(timeout);
+              reject(err); // Should reject on error
+            });
+
+            ws.on("close", (code) => {
+              clearTimeout(timeout);
+              if (code !== 1000) {
+                // Not normal closure
+                reject(new Error(`Connection closed with code ${code}`));
+              } else {
+                reject(
+                  new Error(
+                    "Connection closed normally when it should have failed",
+                  ),
+                );
+              }
+            });
           });
-        });
-      })()).rejects.toThrow();
+        })(),
+      ).rejects.toThrow();
     });
 
     it.skip("should handle rapid WebSocket message exchange", async () => {
       const ws = await createWebSocketConnection(wsServerPort.toString());
 
       // Skip welcome message
-      await new Promise(resolve => {
-        ws.once('message', resolve);
+      await new Promise((resolve) => {
+        ws.once("message", resolve);
       });
 
       const messageCount = 10;
-      const sentMessages = [];
+      const sentMessages: Array<{
+        type: string;
+        sequence: number;
+        data: string;
+      }> = [];
 
       // Send multiple messages rapidly
       for (let i = 0; i < messageCount; i++) {
         const message = {
-          type: 'rapid-test',
+          type: "rapid-test",
           sequence: i,
-          data: `Rapid message ${i}`
+          data: `Rapid message ${i}`,
         };
         sentMessages.push(message);
         ws.send(JSON.stringify(message));
       }
 
       // Collect all responses
-      const responses = [];
+      const responses: unknown[] = [];
       for (let i = 0; i < messageCount; i++) {
         const response = await new Promise((resolve, reject) => {
           const timeout = setTimeout(() => {
             reject(new Error(`Timeout waiting for response ${i}`));
           }, 3000);
 
-          ws.once('message', (data) => {
+          ws.once("message", (data) => {
             clearTimeout(timeout);
             resolve(JSON.parse(data.toString()));
           });
@@ -341,8 +370,8 @@ describe.skip("WebSocket Functionality", () => {
       expect(responses).toHaveLength(messageCount);
       responses.forEach((response, i) => {
         expect(response).toMatchObject({
-          type: 'echo',
-          original: sentMessages[i]
+          type: "echo",
+          original: sentMessages[i],
         });
       });
 
@@ -355,11 +384,11 @@ describe.skip("WebSocket Functionality", () => {
       const ws = await createWebSocketConnection(wsServerPort.toString());
 
       // Skip welcome message and test basic functionality
-      await new Promise(resolve => {
-        ws.once('message', resolve);
+      await new Promise((resolve) => {
+        ws.once("message", resolve);
       });
 
-      const testMessage = { type: 'numeric-host-test', data: 'test' };
+      const testMessage = { type: "numeric-host-test", data: "test" };
       ws.send(JSON.stringify(testMessage));
 
       const response = await new Promise((resolve, reject) => {
@@ -367,15 +396,15 @@ describe.skip("WebSocket Functionality", () => {
           reject(new Error("Response timeout"));
         }, 3000);
 
-        ws.once('message', (data) => {
+        ws.once("message", (data) => {
           clearTimeout(timeout);
           resolve(JSON.parse(data.toString()));
         });
       });
 
       expect(response).toMatchObject({
-        type: 'echo',
-        original: testMessage
+        type: "echo",
+        original: testMessage,
       });
 
       ws.close();
@@ -385,11 +414,11 @@ describe.skip("WebSocket Functionality", () => {
       const ws = await createWebSocketConnection(`localhost--${wsServerPort}`);
 
       // Skip welcome message and test basic functionality
-      await new Promise(resolve => {
-        ws.once('message', resolve);
+      await new Promise((resolve) => {
+        ws.once("message", resolve);
       });
 
-      const testMessage = { type: 'host-port-test', data: 'test' };
+      const testMessage = { type: "host-port-test", data: "test" };
       ws.send(JSON.stringify(testMessage));
 
       const response = await new Promise((resolve, reject) => {
@@ -397,15 +426,15 @@ describe.skip("WebSocket Functionality", () => {
           reject(new Error("Response timeout"));
         }, 3000);
 
-        ws.once('message', (data) => {
+        ws.once("message", (data) => {
           clearTimeout(timeout);
           resolve(JSON.parse(data.toString()));
         });
       });
 
       expect(response).toMatchObject({
-        type: 'echo',
-        original: testMessage
+        type: "echo",
+        original: testMessage,
       });
 
       ws.close();
