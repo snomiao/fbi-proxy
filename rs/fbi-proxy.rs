@@ -5,7 +5,7 @@ use hyper::body::{Bytes, Incoming};
 use hyper::header::{HeaderValue, HOST};
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
-use hyper::{Request, Response, StatusCode, Uri};
+use hyper::{Method, Request, Response, StatusCode, Uri};
 use hyper_tungstenite::{HyperWebsocket, WebSocketStream};
 use hyper_util::client::legacy::{Client, connect::HttpConnector};
 use hyper_util::rt::TokioIo;
@@ -14,7 +14,8 @@ use regex::Regex;
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, TcpStream};
+use tokio::io::copy_bidirectional;
 use tokio_tungstenite::connect_async;
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
@@ -175,6 +176,110 @@ impl FBIProxy {
         let method = req.method().clone();
         let original_uri = req.uri().clone();
 
+        // Handle HTTP CONNECT tunneling (used by browsers for WebSocket/HTTPS through proxy)
+        if method == Method::CONNECT {
+            // For CONNECT, the URI contains the target authority (host:port)
+            // Parse the target from the URI
+            let connect_target = if let Some(authority) = req.uri().authority() {
+                authority.to_string()
+            } else {
+                // Fallback to parsed host
+                target_host.clone()
+            };
+
+            // Apply domain filtering to CONNECT target
+            let connect_host = connect_target.split(':').next().unwrap_or(&connect_target);
+            if let Some(ref domain) = self.domain_filter {
+                if !domain.is_empty() && !connect_host.ends_with(domain) {
+                    info!(
+                        "CONNECT {} => REJECTED{} 502",
+                        host_header,
+                        original_uri
+                    );
+                    return Ok(Response::builder()
+                        .status(StatusCode::BAD_GATEWAY)
+                        .body(Full::new(Bytes::from("Bad Gateway: Host not allowed")).map_err(|e| match e {}).boxed())?);
+                }
+            }
+
+            // Parse the connect target for routing
+            let tunnel_target = if let Some(ref domain) = self.domain_filter {
+                if !domain.is_empty() && connect_host.ends_with(domain) {
+                    // Strip domain and apply routing rules
+                    let prefix_len = connect_host.len() - domain.len();
+                    let stripped = if prefix_len > 0 && connect_host.chars().nth(prefix_len - 1) == Some('.') {
+                        &connect_host[..prefix_len - 1]
+                    } else if prefix_len == 0 {
+                        "localhost"
+                    } else {
+                        connect_host
+                    };
+
+                    // Apply number rule: if stripped is numeric, route to localhost:port
+                    if self.number_regex.is_match(stripped) {
+                        // Get the port from the connect target
+                        let _port = connect_target.split(':').nth(1).unwrap_or("80");
+                        format!("localhost:{}", stripped)
+                    } else {
+                        connect_target.clone()
+                    }
+                } else {
+                    connect_target.clone()
+                }
+            } else {
+                connect_target.clone()
+            };
+
+            info!(
+                "CONNECT {}@{}{} tunneling",
+                host_header,
+                tunnel_target,
+                original_uri
+            );
+
+            // Connect to upstream
+            match TcpStream::connect(&tunnel_target).await {
+                Ok(upstream) => {
+                    // Spawn a task to handle the tunnel
+                    tokio::spawn(async move {
+                        // The upgrade happens after we return the response
+                        // We need to use hyper's upgrade mechanism
+                        match hyper::upgrade::on(req).await {
+                            Ok(upgraded) => {
+                                let mut upgraded = TokioIo::new(upgraded);
+                                let mut upstream = upstream;
+
+                                // Bidirectional copy
+                                if let Err(e) = copy_bidirectional(&mut upgraded, &mut upstream).await {
+                                    error!("Tunnel error: {}", e);
+                                }
+                            }
+                            Err(e) => {
+                                error!("Upgrade error: {}", e);
+                            }
+                        }
+                    });
+
+                    // Return 200 Connection Established
+                    return Ok(Response::builder()
+                        .status(StatusCode::OK)
+                        .body(Full::new(Bytes::new()).map_err(|e| match e {}).boxed())?);
+                }
+                Err(e) => {
+                    error!(
+                        "CONNECT {}@{}{} 502 ({})",
+                        host_header,
+                        tunnel_target,
+                        original_uri,
+                        e
+                    );
+                    return Ok(Response::builder()
+                        .status(StatusCode::BAD_GATEWAY)
+                        .body(Full::new(Bytes::from("FBIPROXY CONNECT ERROR")).map_err(|e| match e {}).boxed())?);
+                }
+            }
+        }
+
         // Handle WebSocket upgrade requests
         if hyper_tungstenite::is_upgrade_request(&req) {
             return self
@@ -250,22 +355,23 @@ impl FBIProxy {
             uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/")
         );
 
-        // Upgrade the HTTP connection to WebSocket
-        let (response, websocket) = hyper_tungstenite::upgrade(req, None)?;
-
-        // Connect to upstream WebSocket
+        // Step 1: Connect to upstream WebSocket FIRST before upgrading client
+        // This ensures we can return proper errors if upstream is unavailable
         let (upstream_ws, _) = match connect_async(&ws_url).await {
             Ok(ws) => ws,
             Err(e) => {
-                error!("WS :ws:{} => :ws:{}{} 502 ({})", target_host, target_host, uri, e);
+                error!("WS :ws:{} => :ws:{}{} 502 (upstream connection failed: {})", target_host, target_host, uri, e);
                 return Ok(Response::builder()
                     .status(StatusCode::BAD_GATEWAY)
-                    .body(Full::new(Bytes::from("WebSocket connection failed")).map_err(|e| match e {}).boxed())?);
+                    .body(Full::new(Bytes::from("WebSocket upstream unavailable")).map_err(|e| match e {}).boxed())?);
             }
         };
 
-        // Spawn task to handle WebSocket forwarding
-        // let ws_url_clone = ws_url.clone();
+        // Step 2: Now upgrade the HTTP connection to WebSocket
+        // Only do this after confirming upstream is available
+        let (response, websocket) = hyper_tungstenite::upgrade(req, None)?;
+
+        // Step 3: Spawn task to handle WebSocket forwarding
         tokio::spawn(async move {
             if let Err(e) = handle_websocket_forwarding(websocket, upstream_ws).await {
                 error!("WebSocket forwarding error: {}", e);

@@ -12,6 +12,11 @@ let mockServerProcess: ChildProcess | null = null;
 export async function setup() {
   console.log("Setting up E2E test environment...");
 
+  // Clear FBI Proxy environment variables to avoid interference with tests
+  delete process.env.FBI_PROXY_DOMAIN;
+  delete process.env.FBI_PROXY_HOST;
+  delete process.env.FBI_PROXY_PORT;
+
   // Get available ports, avoid common test ports
   const proxyPort = await getPort({ port: 4000 });
   const mockServerPort = await getPort({ port: 5000 });
@@ -58,7 +63,8 @@ export async function setup() {
     stdio: 'pipe',
     env: {
       ...process.env,
-      RUST_LOG: "error" // Reduce log noise
+      RUST_LOG: "error", // Reduce log noise
+      FBI_PROXY_DOMAIN: "" // Clear domain filter for tests
     }
   });
 

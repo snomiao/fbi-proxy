@@ -1,0 +1,11 @@
+{
+  "name": "vite-hmr-test-fixture",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0"
+  }
+}
