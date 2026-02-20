@@ -250,22 +250,23 @@ impl FBIProxy {
             uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/")
         );
 
-        // Upgrade the HTTP connection to WebSocket
-        let (response, websocket) = hyper_tungstenite::upgrade(req, None)?;
-
-        // Connect to upstream WebSocket
+        // Step 1: Connect to upstream WebSocket FIRST before upgrading client
+        // This ensures we can return proper errors if upstream is unavailable
         let (upstream_ws, _) = match connect_async(&ws_url).await {
             Ok(ws) => ws,
             Err(e) => {
-                error!("WS :ws:{} => :ws:{}{} 502 ({})", target_host, target_host, uri, e);
+                error!("WS :ws:{} => :ws:{}{} 502 (upstream connection failed: {})", target_host, target_host, uri, e);
                 return Ok(Response::builder()
                     .status(StatusCode::BAD_GATEWAY)
-                    .body(Full::new(Bytes::from("WebSocket connection failed")).map_err(|e| match e {}).boxed())?);
+                    .body(Full::new(Bytes::from("WebSocket upstream unavailable")).map_err(|e| match e {}).boxed())?);
             }
         };
 
-        // Spawn task to handle WebSocket forwarding
-        // let ws_url_clone = ws_url.clone();
+        // Step 2: Now upgrade the HTTP connection to WebSocket
+        // Only do this after confirming upstream is available
+        let (response, websocket) = hyper_tungstenite::upgrade(req, None)?;
+
+        // Step 3: Spawn task to handle WebSocket forwarding
         tokio::spawn(async move {
             if let Err(e) = handle_websocket_forwarding(websocket, upstream_ws).await {
                 error!("WebSocket forwarding error: {}", e);
