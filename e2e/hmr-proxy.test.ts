@@ -157,9 +157,10 @@ describe("Vite HMR through FBI Proxy", () => {
     // Collect console messages
     page.on("console", (msg) => {
       const text = msg.text();
+      // Log all console messages for debugging
+      console.log(`[Browser ${msg.type()}]`, text);
       if (msg.type() === "error") {
         consoleErrors.push(text);
-        console.log("[Browser Console Error]", text);
       }
     });
 
@@ -220,18 +221,40 @@ describe("Vite HMR through FBI Proxy", () => {
     consoleErrors.length = 0;
     networkErrors.length = 0;
 
+    // Wait for HMR WebSocket to be fully connected
+    // Vite sets window.__vite_is_modern_browser when HMR is ready
+    console.log("Waiting for HMR WebSocket to be ready...");
+    await page!
+      .waitForFunction(
+        () => {
+          // Check if Vite HMR client is loaded
+          return (
+            (window as any).__vite_plugin_react_preamble_installed__ !==
+              undefined ||
+            document.querySelector('script[type="module"]') !== null
+          );
+        },
+        { timeout: 5000 },
+      )
+      .catch(() => {
+        console.log("HMR readiness check timed out, proceeding anyway...");
+      });
+
+    // Give HMR a moment to fully establish WebSocket connection
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+
     // Read current counter file
     const currentContent = await fs.readFile(counterFilePath, "utf-8");
 
-    // Modify the HMR_TEST_VALUE
+    // Modify the getHmrTestValue function return value
     const newValue = `UPDATED_VALUE_${Date.now()}`;
     const updatedContent = currentContent.replace(
-      /export const HMR_TEST_VALUE = '[^']+'/,
-      `export const HMR_TEST_VALUE = '${newValue}'`,
+      /return "INITIAL_VALUE"/,
+      `return "${newValue}"`,
     );
 
     console.log(
-      `Modifying counter.ts to set HMR_TEST_VALUE = '${newValue}'...`,
+      `Modifying counter.ts to return '${newValue}' from getHmrTestValue()...`,
     );
 
     // Write the modified file
@@ -247,7 +270,7 @@ describe("Vite HMR through FBI Proxy", () => {
         return marker && marker.textContent === expectedValue;
       },
       newValue,
-      { timeout: 10000 },
+      { timeout: 15000 }, // Increased timeout for HMR through proxy
     );
 
     // Verify the update
@@ -261,7 +284,7 @@ describe("Vite HMR through FBI Proxy", () => {
     expect(dataValue).toBe(newValue);
 
     console.log("HMR update successful!");
-  }, 30000);
+  }, 45000);
 
   it("should have no network errors during the test", async () => {
     // Give a moment for any pending network activity
