@@ -31,8 +31,8 @@ describe.skip("Implementation Comparison: Rust vs TypeScript", () => {
         message: "Hello from comparison test",
         implementation: "target-server",
         ...req,
-        timestamp: Date.now()
-      })
+        timestamp: Date.now(),
+      }),
     });
 
     // Start Rust implementation
@@ -40,28 +40,29 @@ describe.skip("Implementation Comparison: Rust vs TypeScript", () => {
     const projectRoot = path.resolve(__dirname, "..");
     const binaryPath = path.join(projectRoot, "target/release/fbi-proxy");
 
-    rustProxy = spawn(binaryPath, [
-      "-p", rustProxyPort.toString(),
-      "-h", "127.0.0.1"
-    ], {
-      stdio: 'pipe',
-      env: {
-        ...process.env,
-        RUST_LOG: "error", // Reduce log noise
-        FBI_PROXY_DOMAIN: "" // Clear domain filter for tests
-      }
-    });
+    rustProxy = spawn(
+      binaryPath,
+      ["-p", rustProxyPort.toString(), "-h", "127.0.0.1"],
+      {
+        stdio: "pipe",
+        env: {
+          ...process.env,
+          RUST_LOG: "error", // Reduce log noise
+          FBI_PROXY_DOMAIN: "", // Clear domain filter for tests
+        },
+      },
+    );
 
     // Start TypeScript implementation
     console.log(`Starting TypeScript proxy on port ${tsProxyPort}...`);
     tsProxy = spawn("bun", ["ts/cli.ts"], {
       cwd: projectRoot,
-      stdio: 'pipe',
+      stdio: "pipe",
       env: {
         ...process.env,
         FBIPROXY_PORT: tsProxyPort.toString(),
-        FBI_PROXY_DOMAIN: "" // Clear domain filter for tests
-      }
+        FBI_PROXY_DOMAIN: "", // Clear domain filter for tests
+      },
     });
 
     // Wait for both proxies to start
@@ -71,15 +72,15 @@ describe.skip("Implementation Comparison: Rust vs TypeScript", () => {
           reject(new Error("Rust proxy failed to start"));
         }, 15000);
 
-        rustProxy!.stdout!.on('data', (data) => {
+        rustProxy!.stdout!.on("data", (data) => {
           const output = data.toString();
-          if (output.includes('FBI Proxy listening on')) {
+          if (output.includes("FBI Proxy listening on")) {
             clearTimeout(timeout);
             resolve(void 0);
           }
         });
 
-        rustProxy!.on('error', (err) => {
+        rustProxy!.on("error", (err) => {
           clearTimeout(timeout);
           reject(err);
         });
@@ -90,19 +91,19 @@ describe.skip("Implementation Comparison: Rust vs TypeScript", () => {
           reject(new Error("TypeScript proxy failed to start"));
         }, 15000);
 
-        tsProxy!.stdout!.on('data', (data) => {
+        tsProxy!.stdout!.on("data", (data) => {
           const output = data.toString();
-          if (output.includes('Proxy server running on port')) {
+          if (output.includes("Proxy server running on port")) {
             clearTimeout(timeout);
             resolve(void 0);
           }
         });
 
-        tsProxy!.on('error', (err) => {
+        tsProxy!.on("error", (err) => {
           clearTimeout(timeout);
           reject(err);
         });
-      })
+      }),
     ]);
 
     console.log("Both proxy implementations started successfully");
@@ -110,20 +111,25 @@ describe.skip("Implementation Comparison: Rust vs TypeScript", () => {
 
   afterAll(async () => {
     if (rustProxy) {
-      rustProxy.kill('SIGTERM');
+      rustProxy.kill("SIGTERM");
     }
     if (tsProxy) {
-      tsProxy.kill('SIGTERM');
+      tsProxy.kill("SIGTERM");
     }
     await testServers.stopAllServers();
   });
 
-  async function makeRequest(proxyPort: number, host: string, path: string = "/", method: string = "GET") {
+  async function makeRequest(
+    proxyPort: number,
+    host: string,
+    path: string = "/",
+    method: string = "GET",
+  ) {
     const url = `http://127.0.0.1:${proxyPort}${path}`;
 
     const response = await fetch(url, {
       method,
-      headers: { Host: host }
+      headers: { Host: host },
     });
 
     const rawBody = await response.text();
@@ -138,7 +144,7 @@ describe.skip("Implementation Comparison: Rust vs TypeScript", () => {
       status: response.status,
       headers: Object.fromEntries(response.headers.entries()),
       body,
-      rawBody
+      rawBody,
     };
   }
 
@@ -147,7 +153,7 @@ describe.skip("Implementation Comparison: Rust vs TypeScript", () => {
       const host = testPort3000.toString();
       const [rustResponse, tsResponse] = await Promise.all([
         makeRequest(rustProxyPort, host, "/comparison-test"),
-        makeRequest(tsProxyPort, host, "/comparison-test")
+        makeRequest(tsProxyPort, host, "/comparison-test"),
       ]);
 
       // Both should succeed or both should fail
@@ -156,7 +162,9 @@ describe.skip("Implementation Comparison: Rust vs TypeScript", () => {
       if (rustResponse.status === 200 && tsResponse.status === 200) {
         // Both should proxy to the same target
         expect(rustResponse.body.url).toBe(tsResponse.body.url);
-        expect(rustResponse.body.headers.host).toBe(tsResponse.body.headers.host);
+        expect(rustResponse.body.headers.host).toBe(
+          tsResponse.body.headers.host,
+        );
       }
     });
 
@@ -164,7 +172,7 @@ describe.skip("Implementation Comparison: Rust vs TypeScript", () => {
       const host = `localhost--${testPort3000}`;
       const [rustResponse, tsResponse] = await Promise.all([
         makeRequest(rustProxyPort, host, "/comparison-test"),
-        makeRequest(tsProxyPort, host, "/comparison-test")
+        makeRequest(tsProxyPort, host, "/comparison-test"),
       ]);
 
       // Both should succeed or both should fail
@@ -173,7 +181,9 @@ describe.skip("Implementation Comparison: Rust vs TypeScript", () => {
       if (rustResponse.status === 200 && tsResponse.status === 200) {
         // Both should proxy to the same target
         expect(rustResponse.body.url).toBe(tsResponse.body.url);
-        expect(rustResponse.body.headers.host).toBe(tsResponse.body.headers.host);
+        expect(rustResponse.body.headers.host).toBe(
+          tsResponse.body.headers.host,
+        );
       }
     });
   });
@@ -181,11 +191,21 @@ describe.skip("Implementation Comparison: Rust vs TypeScript", () => {
   describe("HTTP method support", () => {
     const methods = ["GET", "POST", "PUT", "DELETE", "PATCH"];
 
-    methods.forEach(method => {
+    methods.forEach((method) => {
       it(`should handle ${method} requests consistently`, async () => {
         const [rustResponse, tsResponse] = await Promise.all([
-          makeRequest(rustProxyPort, testPort3000.toString(), "/method-test", method),
-          makeRequest(tsProxyPort, testPort3000.toString(), "/method-test", method)
+          makeRequest(
+            rustProxyPort,
+            testPort3000.toString(),
+            "/method-test",
+            method,
+          ),
+          makeRequest(
+            tsProxyPort,
+            testPort3000.toString(),
+            "/method-test",
+            method,
+          ),
         ]);
 
         expect(rustResponse.status).toBe(tsResponse.status);
@@ -203,7 +223,7 @@ describe.skip("Implementation Comparison: Rust vs TypeScript", () => {
     it("should handle non-existent ports consistently", async () => {
       const [rustResponse, tsResponse] = await Promise.all([
         makeRequest(rustProxyPort, "9999", "/test"),
-        makeRequest(tsProxyPort, "9999", "/test")
+        makeRequest(tsProxyPort, "9999", "/test"),
       ]);
 
       // Both should return 502 for unreachable targets
@@ -214,7 +234,7 @@ describe.skip("Implementation Comparison: Rust vs TypeScript", () => {
     it("should handle malformed hosts consistently", async () => {
       const [rustResponse, tsResponse] = await Promise.all([
         makeRequest(rustProxyPort, "", "/test"),
-        makeRequest(tsProxyPort, "", "/test")
+        makeRequest(tsProxyPort, "", "/test"),
       ]);
 
       // Both should handle empty hosts gracefully
@@ -228,13 +248,13 @@ describe.skip("Implementation Comparison: Rust vs TypeScript", () => {
       const concurrentRequests = 10;
       const requests = Array.from({ length: concurrentRequests }, (_, i) => [
         makeRequest(rustProxyPort, testPort3000.toString(), `/concurrent-${i}`),
-        makeRequest(tsProxyPort, testPort3000.toString(), `/concurrent-${i}`)
+        makeRequest(tsProxyPort, testPort3000.toString(), `/concurrent-${i}`),
       ]).flat();
 
       const responses = await Promise.all(requests);
 
       // All requests should succeed
-      responses.forEach(response => {
+      responses.forEach((response) => {
         expect(response.status).toBe(200);
       });
 
@@ -253,8 +273,12 @@ describe.skip("Implementation Comparison: Rust vs TypeScript", () => {
 
       for (let i = 0; i < sequentialCount; i++) {
         const [rustResponse, tsResponse] = await Promise.all([
-          makeRequest(rustProxyPort, testPort3000.toString(), `/sequential-${i}`),
-          makeRequest(tsProxyPort, testPort3000.toString(), `/sequential-${i}`)
+          makeRequest(
+            rustProxyPort,
+            testPort3000.toString(),
+            `/sequential-${i}`,
+          ),
+          makeRequest(tsProxyPort, testPort3000.toString(), `/sequential-${i}`),
         ]);
 
         rustResponses.push(rustResponse);
@@ -262,11 +286,11 @@ describe.skip("Implementation Comparison: Rust vs TypeScript", () => {
       }
 
       // All requests should succeed
-      rustResponses.forEach(response => {
+      rustResponses.forEach((response) => {
         expect(response.status).toBe(200);
       });
 
-      tsResponses.forEach(response => {
+      tsResponses.forEach((response) => {
         expect(response.status).toBe(200);
       });
 
@@ -286,22 +310,24 @@ describe.skip("Implementation Comparison: Rust vs TypeScript", () => {
       const customHeaders = {
         "X-Custom-Header": "test-value",
         "User-Agent": "test-comparison",
-        "Authorization": "Bearer test-token"
+        Authorization: "Bearer test-token",
       };
 
       const [rustResponse, tsResponse] = await Promise.all([
         fetch(`http://127.0.0.1:${rustProxyPort}/header-test`, {
-          headers: { Host: testPort3000.toString(), ...customHeaders }
+          headers: { Host: testPort3000.toString(), ...customHeaders },
         }),
         fetch(`http://127.0.0.1:${tsProxyPort}/header-test`, {
-          headers: { Host: testPort3000.toString(), ...customHeaders }
-        })
+          headers: { Host: testPort3000.toString(), ...customHeaders },
+        }),
       ]);
 
-      const [rustBody, tsBody] = await Promise.all([
-        rustResponse.json(),
-        tsResponse.json()
-      ]);
+      const rustBody = (await rustResponse.json()) as {
+        headers: Record<string, string>;
+      };
+      const tsBody = (await tsResponse.json()) as {
+        headers: Record<string, string>;
+      };
 
       // Both should preserve custom headers
       expect(rustBody.headers["x-custom-header"]).toBe("test-value");
@@ -313,7 +339,7 @@ describe.skip("Implementation Comparison: Rust vs TypeScript", () => {
     it("should set Host header for target server consistently", async () => {
       const [rustResponse, tsResponse] = await Promise.all([
         makeRequest(rustProxyPort, testPort3000.toString(), "/host-check"),
-        makeRequest(tsProxyPort, testPort3000.toString(), "/host-check")
+        makeRequest(tsProxyPort, testPort3000.toString(), "/host-check"),
       ]);
 
       expect(rustResponse.status).toBe(200);

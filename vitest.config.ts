@@ -7,6 +7,5 @@ export default defineConfig({
     hookTimeout: 30000,
     teardownTimeout: 10000,
     globalSetup: "./e2e/setup/global-setup.ts",
-    globalTeardown: "./e2e/setup/global-teardown.ts",
   },
 });
