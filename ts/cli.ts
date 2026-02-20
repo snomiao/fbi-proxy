@@ -21,7 +21,8 @@ await yargs(hideBin(process.argv))
 
 console.log("Preparing Binaries");
 
-const FBIPROXY_PORT = String(await getPort({ port: 2432 }));
+const FBI_PROXY_PORT =
+  process.env.FBI_PROXY_PORT || String(await getPort({ port: 2432 }));
 
 const proxyProcess = await hotMemo(async () => {
   const proxy = await getFbiProxyBinary();
@@ -29,7 +30,7 @@ const proxyProcess = await hotMemo(async () => {
   const p = $.opt({
     env: {
       ...process.env,
-      FBIPROXY_PORT, // Rust proxy server port
+      FBI_PROXY_PORT, // Rust proxy server port
     },
   })`${proxy}`.process;
 
@@ -42,7 +43,7 @@ const proxyProcess = await hotMemo(async () => {
 
 console.log("All services started successfully!");
 console.log(`Proxy server PID: ${proxyProcess.pid}`);
-console.log(`Proxy server running on port: ${FBIPROXY_PORT}`);
+console.log(`Proxy server running on port: ${FBI_PROXY_PORT}`);
 
 const exit = () => {
   console.log("Shutting down...");

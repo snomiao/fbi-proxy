@@ -9,7 +9,7 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-describe.skip("Implementation Comparison: Rust vs TypeScript", () => {
+describe("Implementation Comparison: Rust vs TypeScript", () => {
   let testServers: TestServerManager;
   let rustProxy: ChildProcess | null = null;
   let tsProxy: ChildProcess | null = null;
@@ -60,7 +60,7 @@ describe.skip("Implementation Comparison: Rust vs TypeScript", () => {
       stdio: "pipe",
       env: {
         ...process.env,
-        FBIPROXY_PORT: tsProxyPort.toString(),
+        FBI_PROXY_PORT: tsProxyPort.toString(),
         FBI_PROXY_DOMAIN: "", // Clear domain filter for tests
       },
     });
