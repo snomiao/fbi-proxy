@@ -89,6 +89,8 @@ jobs:
           # Note: Do NOT set registry-url when using semantic-release
           # It creates an .npmrc that conflicts with semantic-release auth
       - uses: oven-sh/setup-bun@v2
+      - name: Ensure npm 11.5.1+ for OIDC support
+        run: npm install -g npm@latest
       - run: bun install
       # dont build rs here
       - run: bun run build:ts
@@ -115,6 +117,9 @@ jobs:
           chmod +x release/fbi-proxy-macos-arm64 || true
           ls -la release/
 
+      # IMPORTANT: For npm OIDC to work, you must configure Trusted Publisher at:
+      # https://www.npmjs.com/package/fbi-proxy/settings
+      # Provider: GitHub Actions, Org: snomiao, Repo: fbi-proxy, Workflow: release.yml
       - name: Run semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
