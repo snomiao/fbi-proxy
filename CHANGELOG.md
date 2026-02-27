@@ -1,3 +1,9 @@
+## [1.8.1](https://github.com/snomiao/fbi-proxy/compare/v1.8.0...v1.8.1) (2026-02-27)
+
+### Bug Fixes
+
+- **release:** use explicit binary names instead of generic label ([779077d](https://github.com/snomiao/fbi-proxy/commit/779077d000f6a9962ae5ddd48868e3e14bdabda9))
+
 # [1.8.0](https://github.com/snomiao/fbi-proxy/compare/v1.7.0...v1.8.0) (2026-02-27)
 
 ### Bug Fixes
