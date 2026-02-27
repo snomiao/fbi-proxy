@@ -89,5 +89,8 @@
       "bun --bun prettier --write"
     ]
   },
-  "trustedDependencies": []
+  "trustedDependencies": [],
+  "overrides": {
+    "@semantic-release/npm": "^13.1.3"
+  }
 }
