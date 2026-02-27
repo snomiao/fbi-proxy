@@ -86,7 +86,8 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: latest
-          registry-url: https://registry.npmjs.org/
+          # Note: Do NOT set registry-url when using semantic-release
+          # It creates an .npmrc that conflicts with semantic-release auth
       - uses: oven-sh/setup-bun@v2
       - run: bun install
       # dont build rs here
