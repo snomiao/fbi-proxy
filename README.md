@@ -1,5 +1,10 @@
 # fbi-proxy
 
+[![npm version](https://img.shields.io/npm/v/fbi-proxy)](https://www.npmjs.com/package/fbi-proxy)
+[![crates.io](https://img.shields.io/crates/v/fbi-proxy)](https://crates.io/crates/fbi-proxy)
+[![GitHub release](https://img.shields.io/github/v/release/snomiao/fbi-proxy)](https://github.com/snomiao/fbi-proxy/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 FBI-Proxy provides easy HTTPS access to your local services with intelligent domain routing.
 
 ## Features
@@ -22,12 +27,14 @@ FBI-Proxy provides easy HTTPS access to your local services with intelligent dom
 ## Roadmap
 
 ### Next Up 🚧
+
 - [ ] **Configuration File Support** - YAML/JSON config for persistent routing rules
 - [ ] **Access Control** - Domain filtering, host/port whitelisting
 - [ ] **Request Logging** - Basic access logs for debugging
 - [ ] **Health Checks** - Simple upstream service availability monitoring
 
 ### Future Improvements 🔮
+
 - [ ] **Load Balancing** - Round-robin between multiple upstream targets
 - [ ] **Metrics** - Basic statistics (requests, response times, errors)
 - [ ] **Hot Reload** - Update configuration without restart
@@ -134,12 +141,12 @@ bun run build && bun run start
 
 FBI-Proxy supports the following environment variables for configuration:
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `FBI_PROXY_PORT` | Port for the proxy server to listen on | `2432` |
-| `FBI_PROXY_HOST` | Host/IP address to bind to | `127.0.0.1` |
-| `RUST_LOG` | Log level for the Rust proxy (error, warn, info, debug, trace) | `info` |
-| `FBIPROXY_PORT` | Internal proxy port (auto-assigned) | Auto |
+| Variable         | Description                                                    | Default     |
+| ---------------- | -------------------------------------------------------------- | ----------- |
+| `FBI_PROXY_PORT` | Port for the proxy server to listen on                         | `2432`      |
+| `FBI_PROXY_HOST` | Host/IP address to bind to                                     | `127.0.0.1` |
+| `RUST_LOG`       | Log level for the Rust proxy (error, warn, info, debug, trace) | `info`      |
+| `FBIPROXY_PORT`  | Internal proxy port (auto-assigned)                            | Auto        |
 
 Command-line arguments take precedence over environment variables.
 
