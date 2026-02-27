@@ -28,8 +28,28 @@
       {
         "assets": [
           {
-            "path": "release/**",
-            "label": "Binary releases"
+            "path": "release/fbi-proxy-linux-x64",
+            "name": "fbi-proxy-linux-x64"
+          },
+          {
+            "path": "release/fbi-proxy-linux-arm64",
+            "name": "fbi-proxy-linux-arm64"
+          },
+          {
+            "path": "release/fbi-proxy-macos-x64",
+            "name": "fbi-proxy-macos-x64"
+          },
+          {
+            "path": "release/fbi-proxy-macos-arm64",
+            "name": "fbi-proxy-macos-arm64"
+          },
+          {
+            "path": "release/fbi-proxy-windows-x64.exe",
+            "name": "fbi-proxy-windows-x64.exe"
+          },
+          {
+            "path": "release/fbi-proxy-windows-arm64.exe",
+            "name": "fbi-proxy-windows-arm64.exe"
           }
         ]
       }
