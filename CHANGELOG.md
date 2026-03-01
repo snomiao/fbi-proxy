@@ -1,3 +1,9 @@
+# [1.9.0](https://github.com/snomiao/fbi-proxy/compare/v1.8.1...v1.9.0) (2026-03-01)
+
+### Features
+
+- add startup tutorial and landing page for root domain ([7af423c](https://github.com/snomiao/fbi-proxy/commit/7af423c82f0f397364e05312125b73097a426304))
+
 ## [1.8.1](https://github.com/snomiao/fbi-proxy/compare/v1.8.0...v1.8.1) (2026-02-27)
 
 ### Bug Fixes
