@@ -75,6 +75,96 @@ impl FBIProxy {
         }
     }
 
+    fn landing_page_html() -> String {
+        r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FBI-Proxy</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 2rem;
+            background: #0d1117;
+            color: #c9d1d9;
+            line-height: 1.6;
+        }
+        h1 { color: #58a6ff; margin-bottom: 0.5rem; }
+        h2 { color: #8b949e; border-bottom: 1px solid #30363d; padding-bottom: 0.5rem; }
+        code {
+            background: #161b22;
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+            font-size: 0.9em;
+        }
+        pre {
+            background: #161b22;
+            padding: 1rem;
+            border-radius: 8px;
+            overflow-x: auto;
+        }
+        table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+        th, td {
+            text-align: left;
+            padding: 0.5rem;
+            border-bottom: 1px solid #30363d;
+        }
+        th { color: #8b949e; }
+        .arrow { color: #7ee787; }
+        a { color: #58a6ff; }
+        .warning {
+            background: #3d1f00;
+            border: 1px solid #f85149;
+            padding: 1rem;
+            border-radius: 8px;
+            margin: 1rem 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔀 FBI-Proxy</h1>
+    <p>A reverse proxy with intelligent host header routing.</p>
+
+    <h2>How It Works</h2>
+    <p>FBI-Proxy routes requests based on the <code>Host</code> header:</p>
+    <table>
+        <tr><th>Host Header</th><th></th><th>Routes To</th><th>Description</th></tr>
+        <tr><td><code>3000</code></td><td class="arrow">→</td><td><code>localhost:3000</code></td><td>Port as host</td></tr>
+        <tr><td><code>api--8080</code></td><td class="arrow">→</td><td><code>api:8080</code></td><td>host--port syntax</td></tr>
+        <tr><td><code>3000.fbi.com</code></td><td class="arrow">→</td><td><code>localhost:3000</code></td><td>Subdomain as port</td></tr>
+        <tr><td><code>app.server</code></td><td class="arrow">→</td><td><code>server:80</code></td><td>Subdomain hoisting</td></tr>
+    </table>
+
+    <h2>Quick Start</h2>
+    <pre>npx fbi-proxy                     # Start proxy on :2432
+npx fbi-proxy -d fbi.example.com  # Only accept *.fbi.example.com</pre>
+
+    <h2>Caddy Setup</h2>
+    <p>Expose local ports via HTTPS with wildcard domain:</p>
+    <pre># Caddyfile
+*.fbi.example.com {
+    tls { dns cloudflare {env.CF_API_TOKEN} }
+    reverse_proxy localhost:2432
+}</pre>
+    <p>Then access:</p>
+    <ul>
+        <li><code>https://3000.fbi.example.com</code> → <code>localhost:3000</code></li>
+        <li><code>https://8080.fbi.example.com</code> → <code>localhost:8080</code></li>
+    </ul>
+
+    <div class="warning">
+        ⚠️ <strong>Security Warning:</strong> Set up an auth gateway before exposing to the internet.
+    </div>
+
+    <p><a href="https://github.com/snomiao/fbi-proxy">GitHub</a> · <a href="https://www.npmjs.com/package/fbi-proxy">npm</a> · <a href="https://crates.io/crates/fbi-proxy">crates.io</a></p>
+</body>
+</html>"#.to_string()
+    }
+
     fn parse_host(&self, host_header: &str, domain_filter: &Option<String>) -> Option<(String, String)> {
         // Remove port if present (e.g., "localhost:8080" -> "localhost")
         let host_without_port = if let Some(colon_pos) = host_header.find(':') {
@@ -113,9 +203,9 @@ impl FBIProxy {
             host_without_port
         };
 
-        // Handle special case: @ means root domain was accessed
+        // Handle special case: @ means root domain was accessed - serve landing page
         if host == "@" {
-            return Some(("localhost:80".to_string(), "localhost".to_string()));
+            return Some(("@LANDING".to_string(), "@LANDING".to_string()));
         }
         
         // Rule 1: number host goes to local port (e.g., "3000" => "localhost:3000")
@@ -177,7 +267,16 @@ impl FBIProxy {
                     .body(Full::new(Bytes::from("Bad Gateway: Host not allowed")).map_err(|e| match e {}).boxed())?);
             }
         };
-        
+
+        // Serve landing page for root domain access
+        if target_host == "@LANDING" {
+            info!("GET {} => LANDING 200", host_header);
+            return Ok(Response::builder()
+                .status(StatusCode::OK)
+                .header("Content-Type", "text/html; charset=utf-8")
+                .body(Full::new(Bytes::from(Self::landing_page_html())).map_err(|e| match e {}).boxed())?);
+        }
+
         let method = req.method().clone();
         let original_uri = req.uri().clone();
 
@@ -499,6 +598,25 @@ pub async fn start_proxy_server(host: Option<&str>, port: u16, domain_filter: Op
             println!("Domain filter: Only accepting requests for *.{}", domain);
         }
     }
+    println!();
+    println!("== HOW IT WORKS ==");
+    println!("Routes requests based on Host header:");
+    println!("  3000         -> localhost:3000  (port as host)");
+    println!("  api--8080    -> api:8080        (host--port syntax)");
+    println!("  3000.fbi.com -> localhost:3000  (subdomain as port)");
+    println!("  app.server   -> server:80       (subdomain hoisting)");
+    println!();
+    println!("== CADDY SETUP ==");
+    println!("# Caddyfile - expose *.fbi.example.com to local ports");
+    println!("*.fbi.example.com {{");
+    println!("  tls {{ dns cloudflare {{env.CF_API_TOKEN}} }}");
+    println!("  reverse_proxy localhost:2432");
+    println!("}}");
+    println!();
+    println!("Then: fbi-proxy -d fbi.example.com");
+    println!("  https://3000.fbi.example.com -> localhost:3000");
+    println!("  https://8080.fbi.example.com -> localhost:8080");
+    println!();
     println!("⚠️ FBI-Proxy WARNING: ENSURE YOU KNOW WHAT YOU'RE DOING and be sure to set up an auth gateway before exposing to the internet");
     println!("   This proxy is production ready but requires proper security measures.");
 

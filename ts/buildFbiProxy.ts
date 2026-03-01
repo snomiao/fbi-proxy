@@ -1,5 +1,6 @@
 import { existsSync } from "fs";
 import { chmod } from "fs/promises";
+import path from "path";
 import { getFbiProxyFilename } from "./getProxyFilename";
 import { $ } from "./dSpawn";
 
@@ -7,9 +8,27 @@ if (import.meta.main) {
   await getFbiProxyBinary();
 }
 
-export async function getFbiProxyBinary({ rebuild = false } = {}) {
+export async function getFbiProxyBinary({
+  rebuild = false,
+  originalCwd = "",
+} = {}) {
   const isWin = process.platform === "win32";
   const binaryName = getFbiProxyFilename();
+  const binarySuffix = isWin ? ".exe" : "";
+
+  // Check for local build in original working directory first
+  // This allows users to run `bunx fbi-proxy` from their local repo and use their own build
+  if (!rebuild && originalCwd) {
+    const localBuilt = path.join(
+      originalCwd,
+      `target/release/fbi-proxy${binarySuffix}`,
+    );
+    if (existsSync(localBuilt)) {
+      console.log(`Using local build: ${localBuilt}`);
+      await chmod(localBuilt, 0o755).catch(() => {});
+      return localBuilt;
+    }
+  }
 
   // Check for pre-built binary in Docker container
   const dockerBinary = "/app/bin/fbi-proxy";
@@ -18,7 +37,7 @@ export async function getFbiProxyBinary({ rebuild = false } = {}) {
   }
 
   const release = "./release/" + binaryName;
-  const built = `./target/release/fbi-proxy${isWin ? ".exe" : ""}`;
+  const built = `./target/release/fbi-proxy${binarySuffix}`;
 
   // return built if exists
   if (!rebuild && existsSync(built)) {

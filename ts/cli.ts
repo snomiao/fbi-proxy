@@ -7,6 +7,8 @@ import { hideBin } from "yargs/helpers";
 import { getFbiProxyBinary } from "./buildFbiProxy";
 import { $ } from "./dSpawn";
 
+// Save original cwd before changing (user might have local build there)
+const originalCwd = process.cwd();
 process.chdir(path.resolve(import.meta.dir, "..")); // Change to project root directory
 
 // Parse command line arguments with yargs
@@ -25,7 +27,7 @@ const FBI_PROXY_PORT =
   process.env.FBI_PROXY_PORT || String(await getPort({ port: 2432 }));
 
 const proxyProcess = await hotMemo(async () => {
-  const proxy = await getFbiProxyBinary();
+  const proxy = await getFbiProxyBinary({ originalCwd });
   console.log("Starting Rust proxy server");
   const p = $.opt({
     env: {
