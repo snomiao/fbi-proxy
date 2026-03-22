@@ -1,3 +1,9 @@
+## [1.9.1](https://github.com/snomiao/fbi-proxy/compare/v1.9.0...v1.9.1) (2026-03-22)
+
+### Bug Fixes
+
+- show descriptive 502 Bad Gateway errors instead of opaque FBIPROXY ERROR ([7bf1188](https://github.com/snomiao/fbi-proxy/commit/7bf11883fae39b71c9a14472fdcfeb8e2d89f02b))
+
 # [1.9.0](https://github.com/snomiao/fbi-proxy/compare/v1.8.1...v1.9.0) (2026-03-01)
 
 ### Features
