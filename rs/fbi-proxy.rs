@@ -384,7 +384,8 @@ npx fbi-proxy -d fbi.example.com  # Only accept *.fbi.example.com</pre>
                     );
                     return Ok(Response::builder()
                         .status(StatusCode::BAD_GATEWAY)
-                        .body(Full::new(Bytes::from("FBIPROXY CONNECT ERROR")).map_err(|e| match e {}).boxed())?);
+                        .header("Content-Type", "text/plain")
+                        .body(Full::new(Bytes::from(format!("502 Bad Gateway: failed to connect to {}: {}", tunnel_target, e))).map_err(|e| match e {}).boxed())?);
                 }
                 Err(_) => {
                     error!(
@@ -395,7 +396,8 @@ npx fbi-proxy -d fbi.example.com  # Only accept *.fbi.example.com</pre>
                     );
                     return Ok(Response::builder()
                         .status(StatusCode::BAD_GATEWAY)
-                        .body(Full::new(Bytes::from("FBIPROXY CONNECT TIMEOUT")).map_err(|e| match e {}).boxed())?);
+                        .header("Content-Type", "text/plain")
+                        .body(Full::new(Bytes::from(format!("502 Bad Gateway: connection to {} timed out", tunnel_target))).map_err(|e| match e {}).boxed())?);
                 }
             }
         }
@@ -462,7 +464,8 @@ npx fbi-proxy -d fbi.example.com  # Only accept *.fbi.example.com</pre>
                 );
                 Ok(Response::builder()
                     .status(StatusCode::BAD_GATEWAY)
-                    .body(Full::new(Bytes::from("FBIPROXY ERROR")).map_err(|e| match e {}).boxed())?)
+                    .header("Content-Type", "text/plain")
+                    .body(Full::new(Bytes::from(format!("502 Bad Gateway: failed to connect to {}: {}", target_host, e))).map_err(|e| match e {}).boxed())?)
             }
             Err(_) => {
                 error!(
@@ -474,7 +477,8 @@ npx fbi-proxy -d fbi.example.com  # Only accept *.fbi.example.com</pre>
                 );
                 Ok(Response::builder()
                     .status(StatusCode::BAD_GATEWAY)
-                    .body(Full::new(Bytes::from("FBIPROXY TIMEOUT")).map_err(|e| match e {}).boxed())?)
+                    .header("Content-Type", "text/plain")
+                    .body(Full::new(Bytes::from(format!("502 Bad Gateway: request to {} timed out", target_host))).map_err(|e| match e {}).boxed())?)
             }
         }
     }
@@ -500,7 +504,8 @@ npx fbi-proxy -d fbi.example.com  # Only accept *.fbi.example.com</pre>
                 error!("WS :ws:{} => :ws:{}{} 502 (upstream connection failed: {})", target_host, target_host, uri, e);
                 return Ok(Response::builder()
                     .status(StatusCode::BAD_GATEWAY)
-                    .body(Full::new(Bytes::from("WebSocket upstream unavailable")).map_err(|e| match e {}).boxed())?);
+                    .header("Content-Type", "text/plain")
+                    .body(Full::new(Bytes::from(format!("502 Bad Gateway: WebSocket upstream {} unavailable: {}", target_host, e))).map_err(|e| match e {}).boxed())?);
             }
         };
 
@@ -578,7 +583,8 @@ async fn handle_connection(
             error!("Request handling error: {}", e);
             Ok(Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Full::new(Bytes::from("Internal Server Error")).map_err(|e| match e {}).boxed())
+                .header("Content-Type", "text/plain")
+                .body(Full::new(Bytes::from(format!("500 Internal Server Error: {}", e))).map_err(|e| match e {}).boxed())
                 .unwrap())
         }
     }
