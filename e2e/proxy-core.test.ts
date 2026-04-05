@@ -30,10 +30,10 @@ describe("FBI Proxy Core Functionality", () => {
       method,
       headers: {
         Host: host,
-        ...headers
+        ...headers,
       },
       body,
-      redirect: 'manual' // Don't follow redirects to avoid external auth services
+      redirect: "manual", // Don't follow redirects to avoid external auth services
     });
 
     const rawBody = await response.text();
@@ -49,7 +49,7 @@ describe("FBI Proxy Core Functionality", () => {
       status: response.status,
       headers: Object.fromEntries(response.headers.entries()),
       body: parsedBody,
-      rawBody
+      rawBody,
     };
   }
 
@@ -63,8 +63,8 @@ describe("FBI Proxy Core Functionality", () => {
       responseHandler: (req) => ({
         message: "Hello from port 3000",
         ...req,
-        timestamp: Date.now()
-      })
+        timestamp: Date.now(),
+      }),
     });
 
     testPort8080 = await testServers.startServer({
@@ -72,24 +72,21 @@ describe("FBI Proxy Core Functionality", () => {
       responseHandler: (req) => ({
         message: "Hello from port 8080",
         ...req,
-        timestamp: Date.now()
-      })
+        timestamp: Date.now(),
+      }),
     });
 
     // Start proxy server
     const projectRoot = path.resolve(__dirname, "..");
     const binaryPath = path.join(projectRoot, "target/release/fbi-proxy");
 
-    proxyProcess = spawn(binaryPath, [
-      "-p", proxyPort.toString(),
-      "-h", "127.0.0.1"
-    ], {
-      stdio: 'pipe',
+    proxyProcess = spawn(binaryPath, ["-p", proxyPort.toString(), "-h", "127.0.0.1"], {
+      stdio: "pipe",
       env: {
         ...process.env,
         RUST_LOG: "error",
-        FBI_PROXY_DOMAIN: ""
-      }
+        FBI_PROXY_DOMAIN: "",
+      },
     });
 
     // Wait for proxy to start
@@ -98,15 +95,15 @@ describe("FBI Proxy Core Functionality", () => {
         reject(new Error("Proxy server failed to start"));
       }, 15000);
 
-      proxyProcess!.stdout!.on('data', (data) => {
+      proxyProcess!.stdout!.on("data", (data) => {
         const output = data.toString();
-        if (output.includes('FBI Proxy listening on')) {
+        if (output.includes("FBI Proxy listening on")) {
           clearTimeout(timeout);
           resolve(void 0);
         }
       });
 
-      proxyProcess!.on('error', (err) => {
+      proxyProcess!.on("error", (err) => {
         clearTimeout(timeout);
         reject(err);
       });
@@ -115,7 +112,7 @@ describe("FBI Proxy Core Functionality", () => {
 
   afterAll(async () => {
     if (proxyProcess) {
-      proxyProcess.kill('SIGTERM');
+      proxyProcess.kill("SIGTERM");
     }
     await testServers.stopAllServers();
   });
@@ -124,7 +121,7 @@ describe("FBI Proxy Core Functionality", () => {
     it("should proxy '3000' to localhost:3000", async () => {
       const response = await makeRequest({
         host: testPort3000.toString(),
-        path: "/test"
+        path: "/test",
       });
 
       expect(response.status).toBe(200);
@@ -136,7 +133,7 @@ describe("FBI Proxy Core Functionality", () => {
     it("should proxy '8080' to localhost:8080", async () => {
       const response = await makeRequest({
         host: testPort8080.toString(),
-        path: "/api/data"
+        path: "/api/data",
       });
 
       expect(response.status).toBe(200);
@@ -153,9 +150,9 @@ describe("FBI Proxy Core Functionality", () => {
         path: "/submit",
         method: "POST",
         headers: {
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
         },
-        body: testData
+        body: testData,
       });
 
       expect(response.status).toBe(200);
@@ -169,7 +166,7 @@ describe("FBI Proxy Core Functionality", () => {
     it("should proxy 'localhost--3000' to localhost:3000", async () => {
       const response = await makeRequest({
         host: `localhost--${testPort3000}`,
-        path: "/api"
+        path: "/api",
       });
 
       expect(response.status).toBe(200);
@@ -180,7 +177,7 @@ describe("FBI Proxy Core Functionality", () => {
     it("should proxy 'api--8080' to api:8080 (should fail gracefully)", async () => {
       const response = await makeRequest({
         host: "api--8080",
-        path: "/test"
+        path: "/test",
       });
 
       // This should fail because 'api' is not a valid host
@@ -192,7 +189,7 @@ describe("FBI Proxy Core Functionality", () => {
     it("should proxy 'localhost' to localhost:80 (expected to fail)", async () => {
       const response = await makeRequest({
         host: "localhost",
-        path: "/test"
+        path: "/test",
       });
 
       // This should fail because nothing is running on port 80, or return 302 if Caddy/proxy is running
@@ -204,7 +201,7 @@ describe("FBI Proxy Core Functionality", () => {
     it("should proxy '3000.localhost' to localhost:80 with host: 3000", async () => {
       const response = await makeRequest({
         host: "3000.localhost",
-        path: "/subdomain-test"
+        path: "/subdomain-test",
       });
 
       // This should fail because localhost:80 is not running, or return 302 if Caddy/proxy is running
@@ -219,7 +216,7 @@ describe("FBI Proxy Core Functionality", () => {
       { method: "POST", path: "/post-test" },
       { method: "PUT", path: "/put-test" },
       { method: "DELETE", path: "/delete-test" },
-      { method: "PATCH", path: "/patch-test" }
+      { method: "PATCH", path: "/patch-test" },
     ];
 
     testCases.forEach(({ method, path }) => {
@@ -229,8 +226,8 @@ describe("FBI Proxy Core Functionality", () => {
           path,
           method,
           headers: {
-            "X-Test-Header": "test-value"
-          }
+            "X-Test-Header": "test-value",
+          },
         });
 
         expect(response.status).toBe(200);
@@ -246,13 +243,13 @@ describe("FBI Proxy Core Functionality", () => {
       const customHeaders = {
         "X-Custom-Header": "custom-value",
         "User-Agent": "test-agent",
-        "Authorization": "Bearer test-token"
+        Authorization: "Bearer test-token",
       };
 
       const response = await makeRequest({
         host: testPort3000.toString(),
         path: "/headers-test",
-        headers: customHeaders
+        headers: customHeaders,
       });
 
       expect(response.status).toBe(200);
@@ -264,7 +261,7 @@ describe("FBI Proxy Core Functionality", () => {
     it("should correctly set Host header for target server", async () => {
       const response = await makeRequest({
         host: testPort3000.toString(),
-        path: "/host-check"
+        path: "/host-check",
       });
 
       expect(response.status).toBe(200);
@@ -277,7 +274,7 @@ describe("FBI Proxy Core Functionality", () => {
     it("should return 502 for unreachable hosts", async () => {
       const response = await makeRequest({
         host: "9999", // Assuming nothing runs on port 9999
-        path: "/test"
+        path: "/test",
       });
 
       expect(response.status).toBe(502);
@@ -285,13 +282,13 @@ describe("FBI Proxy Core Functionality", () => {
 
     it("should handle malformed requests gracefully", async () => {
       // Test with an extremely long header value (potential DoS vector)
-      const longValue = 'x'.repeat(10000);
+      const longValue = "x".repeat(10000);
       const response = await makeRequest({
         host: testPort3000.toString(),
         path: "/test",
         headers: {
-          "X-Long-Header": longValue
-        }
+          "X-Long-Header": longValue,
+        },
       });
 
       // Should either succeed or fail gracefully (not crash)
@@ -306,8 +303,8 @@ describe("FBI Proxy Core Functionality", () => {
         host: testPort3000.toString(),
         path: "/json-test",
         headers: {
-          "Accept": "application/json"
-        }
+          Accept: "application/json",
+        },
       });
 
       expect(response.status).toBe(200);
@@ -318,7 +315,7 @@ describe("FBI Proxy Core Functionality", () => {
     it("should handle large request bodies", async () => {
       const largeData = JSON.stringify({
         data: "x".repeat(1000),
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
 
       const response = await makeRequest({
@@ -326,9 +323,9 @@ describe("FBI Proxy Core Functionality", () => {
         path: "/large-body",
         method: "POST",
         headers: {
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
         },
-        body: largeData
+        body: largeData,
       });
 
       expect(response.status).toBe(200);

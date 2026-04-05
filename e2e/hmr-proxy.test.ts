@@ -97,9 +97,7 @@ describe("Vite HMR through FBI Proxy", () => {
     // Start FBI Proxy with domain filter for test
     // Using domain filter "test.local" so that:
     // - {vitePort}.test.local -> strips ".test.local" -> "{vitePort}" -> routes to localhost:{vitePort}
-    console.log(
-      `Starting FBI Proxy on port ${proxyPort} with domain filter "test.local"...`,
-    );
+    console.log(`Starting FBI Proxy on port ${proxyPort} with domain filter "test.local"...`);
     const binaryPath = path.join(projectRoot, "target/release/fbi-proxy");
 
     proxyProcess = spawn(
@@ -229,8 +227,7 @@ describe("Vite HMR through FBI Proxy", () => {
         () => {
           // Check if Vite HMR client is loaded
           return (
-            (window as any).__vite_plugin_react_preamble_installed__ !==
-              undefined ||
+            (window as any).__vite_plugin_react_preamble_installed__ !== undefined ||
             document.querySelector('script[type="module"]') !== null
           );
         },
@@ -248,14 +245,9 @@ describe("Vite HMR through FBI Proxy", () => {
 
     // Modify the getHmrTestValue function return value
     const newValue = `UPDATED_VALUE_${Date.now()}`;
-    const updatedContent = currentContent.replace(
-      /return "INITIAL_VALUE"/,
-      `return "${newValue}"`,
-    );
+    const updatedContent = currentContent.replace(/return "INITIAL_VALUE"/, `return "${newValue}"`);
 
-    console.log(
-      `Modifying counter.ts to return '${newValue}' from getHmrTestValue()...`,
-    );
+    console.log(`Modifying counter.ts to return '${newValue}' from getHmrTestValue()...`);
 
     // Write the modified file
     await fs.writeFile(counterFilePath, updatedContent);
@@ -278,9 +270,7 @@ describe("Vite HMR through FBI Proxy", () => {
     expect(updatedMarker).toBe(newValue);
 
     // Also verify data attribute was updated
-    const dataValue = await page!
-      .locator("#hmr-marker")
-      .getAttribute("data-value");
+    const dataValue = await page!.locator("#hmr-marker").getAttribute("data-value");
     expect(dataValue).toBe(newValue);
 
     console.log("HMR update successful!");

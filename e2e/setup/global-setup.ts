@@ -63,19 +63,15 @@ export default async function setup() {
   // Use the pre-built release binary to avoid compilation time
   const binaryPath = path.join(projectRoot, "target/release/fbi-proxy");
 
-  proxyProcess = spawn(
-    binaryPath,
-    ["-p", proxyPort.toString(), "-h", "127.0.0.1"],
-    {
-      cwd: projectRoot,
-      stdio: "pipe",
-      env: {
-        ...process.env,
-        RUST_LOG: "error", // Reduce log noise
-        FBI_PROXY_DOMAIN: "", // Clear domain filter for tests
-      },
+  proxyProcess = spawn(binaryPath, ["-p", proxyPort.toString(), "-h", "127.0.0.1"], {
+    cwd: projectRoot,
+    stdio: "pipe",
+    env: {
+      ...process.env,
+      RUST_LOG: "error", // Reduce log noise
+      FBI_PROXY_DOMAIN: "", // Clear domain filter for tests
     },
-  );
+  });
 
   // Wait for proxy to start (longer timeout)
   await new Promise((resolve, reject) => {

@@ -96,10 +96,7 @@ describe("VSCode Web through FBI Proxy", () => {
         output += data.toString();
         console.log("[VSCode]", data.toString().trim());
         // VSCode serve-web prints "Web UI available at" when ready
-        if (
-          output.includes("Web UI available at") ||
-          output.includes("available at")
-        ) {
+        if (output.includes("Web UI available at") || output.includes("available at")) {
           clearTimeout(timeout);
           // Give it a moment to fully initialize
           setTimeout(resolve, 2000);
@@ -124,9 +121,7 @@ describe("VSCode Web through FBI Proxy", () => {
     });
 
     // Start FBI Proxy with domain filter
-    console.log(
-      `Starting FBI Proxy on port ${proxyPort} with domain filter "test.local"...`,
-    );
+    console.log(`Starting FBI Proxy on port ${proxyPort} with domain filter "test.local"...`);
     const projectRoot = path.resolve(__dirname, "..");
     const binaryPath = path.join(projectRoot, "target/release/fbi-proxy");
 
@@ -301,11 +296,9 @@ describe("VSCode Web through FBI Proxy", () => {
       // Filter out favicon errors
       if (error.includes("favicon.ico")) return false;
       // Filter out telemetry errors (VSCode tries to send telemetry)
-      if (error.includes("telemetry") || error.includes("analytics"))
-        return false;
+      if (error.includes("telemetry") || error.includes("analytics")) return false;
       // Filter out extension gallery (not critical for basic functionality)
-      if (error.includes("marketplace") || error.includes("gallery"))
-        return false;
+      if (error.includes("marketplace") || error.includes("gallery")) return false;
       // Filter out update checks
       if (error.includes("update")) return false;
       // Filter out external CDN requests (expected to fail with domain filter)

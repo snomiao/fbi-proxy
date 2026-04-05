@@ -29,25 +29,19 @@ export class ProxyTestClient {
   }
 
   async makeRequest(options: ProxyTestOptions = {}): Promise<ProxyResponse> {
-    const {
-      host = "localhost",
-      path = "/",
-      method = "GET",
-      headers = {},
-      body
-    } = options;
+    const { host = "localhost", path = "/", method = "GET", headers = {}, body } = options;
 
     const url = `http://127.0.0.1:${this.proxyPort}${path}`;
 
     const requestHeaders = {
       Host: host,
-      ...headers
+      ...headers,
     };
 
     const response = await fetch(url, {
       method,
       headers: requestHeaders,
-      body
+      body,
     });
 
     const rawBody = await response.text();
@@ -63,7 +57,7 @@ export class ProxyTestClient {
       status: response.status,
       headers: Object.fromEntries(response.headers.entries()),
       body: parsedBody,
-      rawBody
+      rawBody,
     };
   }
 

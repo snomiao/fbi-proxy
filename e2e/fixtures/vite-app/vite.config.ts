@@ -2,9 +2,7 @@ import { defineConfig } from "vite";
 
 export default defineConfig(() => {
   // Get port from env, fallback to letting vite choose
-  const port = process.env.VITE_PORT
-    ? parseInt(process.env.VITE_PORT)
-    : undefined;
+  const port = process.env.VITE_PORT ? parseInt(process.env.VITE_PORT) : undefined;
   const hmrHost = process.env.VITE_HMR_HOST;
 
   return {

@@ -40,18 +40,14 @@ describe("Implementation Comparison: Rust vs TypeScript", () => {
     const projectRoot = path.resolve(__dirname, "..");
     const binaryPath = path.join(projectRoot, "target/release/fbi-proxy");
 
-    rustProxy = spawn(
-      binaryPath,
-      ["-p", rustProxyPort.toString(), "-h", "127.0.0.1"],
-      {
-        stdio: "pipe",
-        env: {
-          ...process.env,
-          RUST_LOG: "error", // Reduce log noise
-          FBI_PROXY_DOMAIN: "", // Clear domain filter for tests
-        },
+    rustProxy = spawn(binaryPath, ["-p", rustProxyPort.toString(), "-h", "127.0.0.1"], {
+      stdio: "pipe",
+      env: {
+        ...process.env,
+        RUST_LOG: "error", // Reduce log noise
+        FBI_PROXY_DOMAIN: "", // Clear domain filter for tests
       },
-    );
+    });
 
     // Start TypeScript implementation
     console.log(`Starting TypeScript proxy on port ${tsProxyPort}...`);
@@ -162,9 +158,7 @@ describe("Implementation Comparison: Rust vs TypeScript", () => {
       if (rustResponse.status === 200 && tsResponse.status === 200) {
         // Both should proxy to the same target
         expect(rustResponse.body.url).toBe(tsResponse.body.url);
-        expect(rustResponse.body.headers.host).toBe(
-          tsResponse.body.headers.host,
-        );
+        expect(rustResponse.body.headers.host).toBe(tsResponse.body.headers.host);
       }
     });
 
@@ -181,9 +175,7 @@ describe("Implementation Comparison: Rust vs TypeScript", () => {
       if (rustResponse.status === 200 && tsResponse.status === 200) {
         // Both should proxy to the same target
         expect(rustResponse.body.url).toBe(tsResponse.body.url);
-        expect(rustResponse.body.headers.host).toBe(
-          tsResponse.body.headers.host,
-        );
+        expect(rustResponse.body.headers.host).toBe(tsResponse.body.headers.host);
       }
     });
   });
@@ -194,18 +186,8 @@ describe("Implementation Comparison: Rust vs TypeScript", () => {
     methods.forEach((method) => {
       it(`should handle ${method} requests consistently`, async () => {
         const [rustResponse, tsResponse] = await Promise.all([
-          makeRequest(
-            rustProxyPort,
-            testPort3000.toString(),
-            "/method-test",
-            method,
-          ),
-          makeRequest(
-            tsProxyPort,
-            testPort3000.toString(),
-            "/method-test",
-            method,
-          ),
+          makeRequest(rustProxyPort, testPort3000.toString(), "/method-test", method),
+          makeRequest(tsProxyPort, testPort3000.toString(), "/method-test", method),
         ]);
 
         expect(rustResponse.status).toBe(tsResponse.status);
@@ -273,11 +255,7 @@ describe("Implementation Comparison: Rust vs TypeScript", () => {
 
       for (let i = 0; i < sequentialCount; i++) {
         const [rustResponse, tsResponse] = await Promise.all([
-          makeRequest(
-            rustProxyPort,
-            testPort3000.toString(),
-            `/sequential-${i}`,
-          ),
+          makeRequest(rustProxyPort, testPort3000.toString(), `/sequential-${i}`),
           makeRequest(tsProxyPort, testPort3000.toString(), `/sequential-${i}`),
         ]);
 

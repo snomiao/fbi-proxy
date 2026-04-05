@@ -38,9 +38,7 @@ if (import.meta.hot) {
           <p id="hmr-status">HMR Updated at ${new Date().toISOString()}</p>
         </div>
       `;
-      newModule.setupCounter(
-        document.querySelector<HTMLDivElement>("#counter-container")!,
-      );
+      newModule.setupCounter(document.querySelector<HTMLDivElement>("#counter-container")!);
       console.log(
         "[HMR] Render complete, marker text:",
         document.getElementById("hmr-marker")?.textContent,

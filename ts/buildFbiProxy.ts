@@ -8,10 +8,7 @@ if (import.meta.main) {
   await getFbiProxyBinary();
 }
 
-export async function getFbiProxyBinary({
-  rebuild = false,
-  originalCwd = "",
-} = {}) {
+export async function getFbiProxyBinary({ rebuild = false, originalCwd = "" } = {}) {
   const isWin = process.platform === "win32";
   const binaryName = getFbiProxyFilename();
   const binarySuffix = isWin ? ".exe" : "";
@@ -19,10 +16,7 @@ export async function getFbiProxyBinary({
   // Check for local build in original working directory first
   // This allows users to run `bunx fbi-proxy` from their local repo and use their own build
   if (!rebuild && originalCwd) {
-    const localBuilt = path.join(
-      originalCwd,
-      `target/release/fbi-proxy${binarySuffix}`,
-    );
+    const localBuilt = path.join(originalCwd, `target/release/fbi-proxy${binarySuffix}`);
     if (existsSync(localBuilt)) {
       console.log(`Using local build: ${localBuilt}`);
       await chmod(localBuilt, 0o755).catch(() => {});
@@ -61,7 +55,5 @@ export async function getFbiProxyBinary({
     return built;
   }
 
-  throw new Error(
-    "Oops, failed to build fbi-proxy binary. Please check your Rust setup.",
-  );
+  throw new Error("Oops, failed to build fbi-proxy binary. Please check your Rust setup.");
 }

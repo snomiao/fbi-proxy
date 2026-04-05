@@ -70,11 +70,7 @@ describe.skip("WebSocket Functionality", () => {
       }, 5000);
 
       wsServerProcess!.stdout!.on("data", (data) => {
-        if (
-          data
-            .toString()
-            .includes(`WebSocket server listening on port ${wsServerPort}`)
-        ) {
+        if (data.toString().includes(`WebSocket server listening on port ${wsServerPort}`)) {
           clearTimeout(timeout);
           resolve(void 0);
         }
@@ -91,18 +87,14 @@ describe.skip("WebSocket Functionality", () => {
     const projectRoot = path.resolve(__dirname, "..");
     const binaryPath = path.join(projectRoot, "target/release/fbi-proxy");
 
-    proxyProcess = spawn(
-      binaryPath,
-      ["-p", proxyPort.toString(), "-h", "127.0.0.1"],
-      {
-        stdio: "pipe",
-        env: {
-          ...process.env,
-          RUST_LOG: "error",
-          FBI_PROXY_DOMAIN: "", // Clear domain filter for tests
-        },
+    proxyProcess = spawn(binaryPath, ["-p", proxyPort.toString(), "-h", "127.0.0.1"], {
+      stdio: "pipe",
+      env: {
+        ...process.env,
+        RUST_LOG: "error",
+        FBI_PROXY_DOMAIN: "", // Clear domain filter for tests
       },
-    );
+    });
 
     // Wait for proxy to start
     await new Promise((resolve, reject) => {
@@ -138,10 +130,7 @@ describe.skip("WebSocket Functionality", () => {
     }
   });
 
-  async function createWebSocketConnection(
-    host: string,
-    path: string = "/",
-  ): Promise<WebSocket> {
+  async function createWebSocketConnection(host: string, path: string = "/"): Promise<WebSocket> {
     const wsUrl = `ws://127.0.0.1:${proxyPort}${path}`;
 
     const ws = new WebSocket(wsUrl, {
@@ -234,9 +223,7 @@ describe.skip("WebSocket Functionality", () => {
 
       // Skip welcome messages
       await Promise.all(
-        connections.map(
-          (ws) => new Promise((resolve) => ws.once("message", resolve)),
-        ),
+        connections.map((ws) => new Promise((resolve) => ws.once("message", resolve))),
       );
 
       const messages = connections.map((_, i) => ({
@@ -312,11 +299,7 @@ describe.skip("WebSocket Functionality", () => {
                 // Not normal closure
                 reject(new Error(`Connection closed with code ${code}`));
               } else {
-                reject(
-                  new Error(
-                    "Connection closed normally when it should have failed",
-                  ),
-                );
+                reject(new Error("Connection closed normally when it should have failed"));
               }
             });
           });

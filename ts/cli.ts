@@ -23,8 +23,7 @@ await yargs(hideBin(process.argv))
 
 console.log("Preparing Binaries");
 
-const FBI_PROXY_PORT =
-  process.env.FBI_PROXY_PORT || String(await getPort({ port: 2432 }));
+const FBI_PROXY_PORT = process.env.FBI_PROXY_PORT || String(await getPort({ port: 2432 }));
 
 const proxyProcess = await hotMemo(async () => {
   const proxy = await getFbiProxyBinary({ originalCwd });

@@ -10,14 +10,14 @@ export class TestServerManager {
   private processes: Map<number, ChildProcess> = new Map();
 
   async startServer(options: TestServerOptions = {}): Promise<number> {
-    const port = options.port || await getPort();
+    const port = options.port || (await getPort());
 
     const defaultResponseHandler = (req: any) => ({
       method: req.method,
       url: req.url,
       headers: req.headers,
       timestamp: Date.now(),
-      serverPort: port
+      serverPort: port,
     });
 
     const responseHandler = options.responseHandler || defaultResponseHandler;
@@ -49,7 +49,7 @@ export class TestServerManager {
     `;
 
     const process = spawn("node", ["-e", serverCode], {
-      stdio: 'pipe'
+      stdio: "pipe",
     });
 
     this.processes.set(port, process);
@@ -60,14 +60,14 @@ export class TestServerManager {
         reject(new Error(`Test server failed to start on port ${port}`));
       }, 5000);
 
-      process.stdout!.on('data', (data) => {
+      process.stdout!.on("data", (data) => {
         if (data.toString().includes(`Test server listening on port ${port}`)) {
           clearTimeout(timeout);
           resolve(void 0);
         }
       });
 
-      process.on('error', (err) => {
+      process.on("error", (err) => {
         clearTimeout(timeout);
         reject(err);
       });
@@ -79,16 +79,16 @@ export class TestServerManager {
   async stopServer(port: number): Promise<void> {
     const process = this.processes.get(port);
     if (process) {
-      process.kill('SIGTERM');
+      process.kill("SIGTERM");
       this.processes.delete(port);
 
       // Wait a bit for clean shutdown
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise((resolve) => setTimeout(resolve, 500));
     }
   }
 
   async stopAllServers(): Promise<void> {
     const ports = Array.from(this.processes.keys());
-    await Promise.all(ports.map(port => this.stopServer(port)));
+    await Promise.all(ports.map((port) => this.stopServer(port)));
   }
 }

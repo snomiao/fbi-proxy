@@ -25,8 +25,8 @@ describe("Domain Filtering Functionality", () => {
       responseHandler: (req) => ({
         message: "Hello from filtered domain test",
         ...req,
-        timestamp: Date.now()
-      })
+        timestamp: Date.now(),
+      }),
     });
 
     // Start proxy with domain filter
@@ -34,18 +34,18 @@ describe("Domain Filtering Functionality", () => {
     const projectRoot = path.resolve(__dirname, "..");
     const binaryPath = path.join(projectRoot, "target/release/fbi-proxy");
 
-    proxyWithDomainFilter = spawn(binaryPath, [
-      "-p", proxyPort.toString(),
-      "-h", "127.0.0.1",
-      "-d", "example.com"
-    ], {
-      stdio: 'pipe',
-      env: {
-        ...process.env,
-        RUST_LOG: "error",
-        FBI_PROXY_DOMAIN: "example.com" // Explicitly set for domain filtering tests
-      }
-    });
+    proxyWithDomainFilter = spawn(
+      binaryPath,
+      ["-p", proxyPort.toString(), "-h", "127.0.0.1", "-d", "example.com"],
+      {
+        stdio: "pipe",
+        env: {
+          ...process.env,
+          RUST_LOG: "error",
+          FBI_PROXY_DOMAIN: "example.com", // Explicitly set for domain filtering tests
+        },
+      },
+    );
 
     // Wait for proxy to start
     await new Promise((resolve, reject) => {
@@ -53,19 +53,19 @@ describe("Domain Filtering Functionality", () => {
         reject(new Error("Domain-filtered proxy failed to start"));
       }, 10000);
 
-      proxyWithDomainFilter!.stdout!.on('data', (data) => {
+      proxyWithDomainFilter!.stdout!.on("data", (data) => {
         const output = data.toString();
-        if (output.includes('FBI Proxy listening on')) {
+        if (output.includes("FBI Proxy listening on")) {
           clearTimeout(timeout);
           resolve(void 0);
         }
       });
 
-      proxyWithDomainFilter!.stderr!.on('data', (data) => {
-        console.error('Domain proxy stderr:', data.toString());
+      proxyWithDomainFilter!.stderr!.on("data", (data) => {
+        console.error("Domain proxy stderr:", data.toString());
       });
 
-      proxyWithDomainFilter!.on('error', (err) => {
+      proxyWithDomainFilter!.on("error", (err) => {
         clearTimeout(timeout);
         reject(err);
       });
@@ -74,7 +74,7 @@ describe("Domain Filtering Functionality", () => {
 
   afterAll(async () => {
     if (proxyWithDomainFilter) {
-      proxyWithDomainFilter.kill('SIGTERM');
+      proxyWithDomainFilter.kill("SIGTERM");
     }
     await testServers.stopAllServers();
   });
@@ -84,7 +84,7 @@ describe("Domain Filtering Functionality", () => {
 
     const response = await fetch(url, {
       headers: { Host: host },
-      redirect: 'manual' // Don't follow redirects to avoid external auth services
+      redirect: "manual", // Don't follow redirects to avoid external auth services
     });
 
     const rawBody = await response.text();
@@ -98,7 +98,7 @@ describe("Domain Filtering Functionality", () => {
     return {
       status: response.status,
       body,
-      rawBody
+      rawBody,
     };
   }
 

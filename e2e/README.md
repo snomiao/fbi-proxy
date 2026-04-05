@@ -86,6 +86,7 @@ All servers are automatically cleaned up after tests complete.
 The tests cover:
 
 ### Core Functionality
+
 - ✅ All host parsing rules (numeric, host--port, subdomain hoisting)
 - ✅ HTTP method support (GET, POST, PUT, DELETE, PATCH)
 - ✅ Header preservation and modification
@@ -93,12 +94,14 @@ The tests cover:
 - ✅ Content handling (JSON, large bodies)
 
 ### Advanced Features
+
 - ✅ Domain filtering (acceptance and rejection)
 - ✅ WebSocket proxying and message forwarding
 - ✅ Multiple concurrent connections
 - ✅ Performance under load
 
 ### Implementation Compatibility
+
 - ✅ Rust vs TypeScript routing consistency
 - ✅ Error handling parity
 - ✅ Header processing compatibility
@@ -141,7 +144,7 @@ describe("My New Feature", () => {
   it("should handle my feature", async () => {
     const response = await client.makeRequest({
       host: "3000",
-      path: "/my-feature"
+      path: "/my-feature",
     });
 
     expect(response.status).toBe(200);

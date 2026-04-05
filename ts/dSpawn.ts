@@ -15,10 +15,7 @@ type DRunProc = Promise<{
   process: ChildProcess;
 };
 
-const dSpawn = ({
-  cwd = process.cwd(),
-  env = process.env as Record<string, string>,
-} = {}) =>
+const dSpawn = ({ cwd = process.cwd(), env = process.env as Record<string, string> } = {}) =>
   tsaComposer(
     // slot is un dividable
     (slot: string | { raw: string }) =>
@@ -64,11 +61,9 @@ const dSpawn = ({
         });
 
         // Main promise that resolves with combined result (also lazy)
-        const mainPromise = Promise.all([
-          outPromise,
-          errPromise,
-          codePromise,
-        ]).then(([out, err, code]) => ({ out, err, code }));
+        const mainPromise = Promise.all([outPromise, errPromise, codePromise]).then(
+          ([out, err, code]) => ({ out, err, code }),
+        );
 
         // Create the proxy object that combines Promise with additional properties
         const result = new Proxy(mainPromise, {
