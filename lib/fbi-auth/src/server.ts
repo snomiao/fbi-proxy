@@ -1,17 +1,19 @@
 import { Hono } from "hono";
-import { loadAuthConfig } from "./config";
+import { loadAuthConfig, type AuthConfig } from "./config";
 import { makeSession } from "./session";
 import { makeStateStore } from "./state";
 import { makeGoogleProvider } from "./providers/google";
+import { makeFirebaseProvider } from "./providers/firebase";
 import { healthRoute } from "./routes/health";
 import { verifyRoute } from "./routes/verify";
 import { loginRoute } from "./routes/login";
 import { callbackRoute } from "./routes/callback";
 import { logoutRoute } from "./routes/logout";
 import { meRoute } from "./routes/me";
+import { firebaseRoute } from "./routes/firebase";
 
-export async function buildApp() {
-  const config = await loadAuthConfig();
+export async function buildApp(configOverride?: AuthConfig) {
+  const config = configOverride ?? (await loadAuthConfig());
   const ssoOrigin = `https://${config.ssoHost}`;
   const redirectUri = `${ssoOrigin}/callback`;
 
@@ -21,24 +23,32 @@ export async function buildApp() {
   });
   const states = makeStateStore();
 
-  if (config.provider !== "google") {
-    throw new Error(
-      `Provider '${config.provider}' not implemented in Phase 1 — only 'google' is supported. Firebase/snolab arrive in Phase 2-4.`,
-    );
-  }
-  const provider = await makeGoogleProvider({
-    clientId: config.clientId,
-    clientSecret: config.clientSecret,
-    redirectUri,
-  });
-
   const app = new Hono();
   app.route("/", healthRoute());
   app.route("/", verifyRoute({ config, session }));
-  app.route("/", loginRoute({ provider, states, ssoOrigin }));
-  app.route("/", callbackRoute({ config, provider, session, states }));
   app.route("/", logoutRoute({ config }));
   app.route("/", meRoute({ session }));
+
+  if (config.provider === "google" || config.provider === "snolab") {
+    if (!config.clientId)
+      throw new Error(`provider '${config.provider}' requires clientId`);
+    const provider = await makeGoogleProvider({
+      clientId: config.clientId,
+      clientSecret: config.clientSecret,
+      redirectUri,
+    });
+    app.route("/", loginRoute({ provider, states, ssoOrigin }));
+    app.route("/", callbackRoute({ config, provider, session, states }));
+  } else if (config.provider === "firebase") {
+    if (!config.firebase?.projectId)
+      throw new Error("provider 'firebase' requires firebase.projectId");
+    const provider = makeFirebaseProvider({
+      projectId: config.firebase.projectId,
+    });
+    app.route("/", firebaseRoute({ config, provider, session }));
+  } else {
+    throw new Error(`Unknown provider: ${(config as AuthConfig).provider}`);
+  }
 
   app.get("/", (c) => c.redirect("/api/auth/me", 302));
 

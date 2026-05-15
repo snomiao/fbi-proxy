@@ -10,14 +10,21 @@ export type AllowlistRules = {
   anySignedIn?: boolean;
 };
 
+export type FirebaseConfig = {
+  projectId: string;
+  apiKey?: string;
+  authDomain?: string;
+};
+
 export type AuthConfig = {
   version: 1;
   domain: string;
   cookieDomain: string;
   ssoHost: string;
   provider: "google" | "firebase" | "snolab";
-  clientId: string;
+  clientId?: string;
   clientSecret?: string;
+  firebase?: FirebaseConfig;
   sessionSecret: string;
   allowlist: AllowlistRules;
 };
@@ -64,8 +71,9 @@ export function newSessionSecret(): string {
 export function makeAuthConfig(input: {
   domain: string;
   provider: AuthConfig["provider"];
-  clientId: string;
+  clientId?: string;
   clientSecret?: string;
+  firebase?: FirebaseConfig;
   allowlist?: AllowlistRules;
 }): AuthConfig {
   const domain = stripLeadingDot(input.domain);
@@ -77,6 +85,7 @@ export function makeAuthConfig(input: {
     provider: input.provider,
     clientId: input.clientId,
     clientSecret: input.clientSecret,
+    firebase: input.firebase,
     sessionSecret: newSessionSecret(),
     allowlist: input.allowlist ?? { anySignedIn: true },
   };
@@ -93,7 +102,19 @@ function validate(c: AuthConfig): void {
   if (!c.cookieDomain)
     throw new Error("auth config: 'cookieDomain' is required");
   if (!c.provider) throw new Error("auth config: 'provider' is required");
-  if (!c.clientId) throw new Error("auth config: 'clientId' is required");
+
+  if (c.provider === "google" || c.provider === "snolab") {
+    if (!c.clientId)
+      throw new Error(
+        `auth config: 'clientId' is required when provider is '${c.provider}'`,
+      );
+  } else if (c.provider === "firebase") {
+    if (!c.firebase?.projectId)
+      throw new Error(
+        "auth config: 'firebase.projectId' is required when provider is 'firebase'",
+      );
+  }
+
   if (!c.sessionSecret || c.sessionSecret.length < 32) {
     throw new Error("auth config: 'sessionSecret' must be at least 32 chars");
   }

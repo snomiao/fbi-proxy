@@ -14,6 +14,7 @@ import {
   writeConfig,
 } from "./auth/authConfig";
 import { spawnFbiAuth, type FbiAuthHandle } from "./auth/spawnFbiAuth";
+import { isTty, readlinePrompter, runWizard } from "./auth/setupWizard";
 
 const originalCwd = process.cwd();
 process.chdir(path.resolve(import.meta.dir, ".."));
@@ -38,7 +39,8 @@ const argv = await yargs(hideBin(process.argv))
   .option("reconfigure", {
     type: "boolean",
     default: false,
-    description: "Reserved for Phase 2 setup wizard (not yet implemented)",
+    description:
+      "Run the interactive fbi-auth setup wizard to (re)write auth.json (requires a TTY)",
   })
   .help().argv;
 
@@ -97,18 +99,36 @@ async function startFbiAuth(opts: {
   const configPath = defaultConfigPath();
   let cfg = await readConfigOrNull(configPath);
 
-  if (!cfg) {
-    const fromEnv = configFromEnv(opts.domain);
-    if (fromEnv) {
-      console.log(`[fbi-auth] writing config from env vars → ${configPath}`);
-      await writeConfig(fromEnv, configPath);
-      cfg = fromEnv;
-    } else {
-      console.error(helpfulSetupMessage(opts.domain, configPath));
+  if (opts.reconfigure) {
+    if (!isTty()) {
       console.error(
-        "[fbi-auth] not started — --with-auth requires a config or env vars.",
+        "[fbi-auth] --reconfigure requires a TTY (interactive terminal).",
       );
       return undefined;
+    }
+    const prompter = readlinePrompter();
+    cfg = await runWizard(prompter, { domain: opts.domain, existing: cfg });
+    console.log(`[fbi-auth] writing config from wizard → ${configPath}`);
+    await writeConfig(cfg, configPath);
+  } else if (!cfg) {
+    if (isTty()) {
+      const prompter = readlinePrompter();
+      cfg = await runWizard(prompter, { domain: opts.domain, existing: null });
+      console.log(`[fbi-auth] writing config from wizard → ${configPath}`);
+      await writeConfig(cfg, configPath);
+    } else {
+      const fromEnv = configFromEnv(opts.domain);
+      if (fromEnv) {
+        console.log(`[fbi-auth] writing config from env vars → ${configPath}`);
+        await writeConfig(fromEnv, configPath);
+        cfg = fromEnv;
+      } else {
+        console.error(helpfulSetupMessage(opts.domain, configPath));
+        console.error(
+          "[fbi-auth] not started — --with-auth requires a config, env vars, or a TTY for the wizard.",
+        );
+        return undefined;
+      }
     }
   }
 

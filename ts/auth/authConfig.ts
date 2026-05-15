@@ -4,14 +4,21 @@ import { existsSync } from "node:fs";
 import { mkdir, writeFile, chmod, readFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 
+export type FirebaseSubConfig = {
+  projectId: string;
+  apiKey?: string;
+  authDomain?: string;
+};
+
 export type AuthConfigShape = {
   version: 1;
   domain: string;
   cookieDomain: string;
   ssoHost: string;
   provider: "google" | "firebase" | "snolab";
-  clientId: string;
+  clientId?: string;
   clientSecret?: string;
+  firebase?: FirebaseSubConfig;
   sessionSecret: string;
   allowlist: {
     emails?: string[];
@@ -52,19 +59,33 @@ export async function writeConfig(
 }
 
 export function configFromEnv(domain: string): AuthConfigShape | null {
+  const provider =
+    (process.env.FBI_AUTH_PROVIDER as AuthConfigShape["provider"]) ?? "google";
   const clientId = process.env.FBI_AUTH_CLIENT_ID;
-  if (!clientId) return null;
+  const firebaseProjectId = process.env.FBI_AUTH_FIREBASE_PROJECT_ID;
+
+  if (provider === "firebase") {
+    if (!firebaseProjectId) return null;
+  } else {
+    if (!clientId) return null;
+  }
+
   const d = domain.startsWith(".") ? domain.slice(1) : domain;
   return {
     version: 1,
     domain: d,
     cookieDomain: `.${d}`,
     ssoHost: `sso.${d}`,
-    provider:
-      (process.env.FBI_AUTH_PROVIDER as AuthConfigShape["provider"]) ??
-      "google",
+    provider,
     clientId,
     clientSecret: process.env.FBI_AUTH_CLIENT_SECRET,
+    firebase: firebaseProjectId
+      ? {
+          projectId: firebaseProjectId,
+          apiKey: process.env.FBI_AUTH_FIREBASE_API_KEY,
+          authDomain: process.env.FBI_AUTH_FIREBASE_AUTH_DOMAIN,
+        }
+      : undefined,
     sessionSecret:
       process.env.FBI_AUTH_SESSION_SECRET ??
       randomBytes(32).toString("base64url"),
