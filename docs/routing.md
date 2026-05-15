@@ -83,11 +83,12 @@ specific rules first.
 
 Patterns and templates use a brace syntax:
 
-| Form          | Matches                     | Use for                           |
-| ------------- | --------------------------- | --------------------------------- |
-| `{name}`      | One host segment (no dot)   | The common case                   |
-| `{name:int}`  | `\d+` — one numeric segment | Ports, PR numbers, IDs            |
-| `{name:slug}` | `[a-z0-9-]+` — DNS-friendly | Branch names, service identifiers |
+| Form           | Matches                                      | Use for                                   |
+| -------------- | -------------------------------------------- | ----------------------------------------- |
+| `{name}`       | One host segment (no dot)                    | The common case                           |
+| `{name:int}`   | `\d+` — one numeric segment                  | Ports, PR numbers, IDs                    |
+| `{name:slug}`  | `[a-z0-9-]+` — DNS-friendly                  | Branch names, service identifiers         |
+| `{name:multi}` | `[^.]+(\.[^.]+)*` — one or more dot-segments | DNS-passthrough, multi-dot upstream names |
 
 There is one special placeholder name: **`{domain}`**. By convention
 it captures the trailing fbi-proxy domain (e.g. `fbi.com`,
@@ -194,6 +195,86 @@ additional metadata — they don't change routing.)
   headers:
     Host: "{name}.svc.internal"
 ```
+
+### Docker network: service-name routing
+
+If your fbi-proxy container shares a Docker network with other services,
+their names already resolve. `service.docker.fbi.com` → `service:80`:
+
+```yaml
+- name: docker
+  match: "{service}.docker.{domain}"
+  target: "{service}:80"
+  headers:
+    Host: "{service}"
+```
+
+Use Docker Compose's `networks:` to put everything on the same bridge, or
+`docker run --network=...`. Then `https://api.docker.fbi.com/` reaches the
+`api` container's port 80.
+
+### Kubernetes: in-cluster service routing
+
+If fbi-proxy runs inside the cluster, k8s DNS gives you names like
+`nginx.default.svc.cluster.local`. Bridge that to a human-friendly
+subdomain:
+
+```yaml
+- name: k8s
+  match: "{service:slug}.{namespace:slug}.k8s.{domain}"
+  target: "{service}.{namespace}.svc.cluster.local:80"
+  headers:
+    Host: "{service}.{namespace}.svc.cluster.local"
+```
+
+`https://nginx.default.k8s.fbi.com/` → `nginx.default.svc.cluster.local:80`.
+
+### DNS passthrough — fbi.com as a transparent overlay
+
+The `{name:multi}` placeholder makes `*.fbi.com` behave like a
+**suffix-stripping reverse proxy**: the public DNS for `*.fbi.com`
+already points at your laptop (or your fbi-proxy host), so embedding any
+real hostname as a sub-domain reaches that hostname after fbi-proxy
+strips the trailing `.fbi.com` and re-resolves the prefix.
+
+```yaml
+- name: dns-passthrough
+  match: "{upstream:multi}.{domain}"
+  target: "{upstream}:80"
+  headers:
+    Host: "{upstream}"
+```
+
+What it does:
+
+- `https://github.com.fbi.com/repo` &rarr; the proxy resolves `github.com`
+  via the OS resolver and forwards to `github.com:80/repo` with
+  `Host: github.com`.
+- `https://api.example.org.fbi.com/v2/` &rarr; resolves `api.example.org`
+  and forwards similarly.
+
+Why this is useful:
+
+- **Local-DNS overlay that looks like the real internet.** You don't
+  need `/etc/hosts` or a custom DNS server to make external sites
+  pretend to live under your dev domain — just embed them as subdomains.
+- **Cookie sharing across the dev domain.** A page served from
+  `github.com.fbi.com` is technically in the `.fbi.com` cookie space, so
+  SSO sessions (from fbi-auth) automatically attach. Useful for testing
+  what an authenticated user would see on a third-party site.
+- **Sniffing / debugging.** All traffic goes through your fbi-proxy
+  process, where you can log it or inject headers.
+
+⚠️ **HTTPS upstreams are not yet supported.** `target: "github.com:443"`
+will open a plaintext TCP connection to port 443 — the TLS handshake
+will fail. Today this pattern only works for `:80` or other plaintext
+upstreams. Phase R5 (HTTPS upstream support) is on the roadmap.
+
+⚠️ **Ordering matters.** Place `dns-passthrough` **after** more specific
+rules in `routes.yaml`, otherwise `{upstream:multi}` greedily eats
+patterns like `3000.fbi.com` (matching `upstream=3000` instead of
+hitting `port-as-host`). The default 4 rules should remain at the top
+unless you intentionally want the passthrough to win.
 
 ## Migrating from the hardcoded behavior
 

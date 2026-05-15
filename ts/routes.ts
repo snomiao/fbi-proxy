@@ -14,7 +14,7 @@ import YAML from "yaml";
 /** A placeholder declared in a route's `match` pattern. */
 export type Placeholder = {
   name: string;
-  kind: "any" | "int" | "slug";
+  kind: "any" | "int" | "slug" | "multi";
 };
 
 /** A single route entry in `routes.yaml`. */
@@ -23,7 +23,8 @@ export type RouteConfig = {
   name: string;
   /**
    * Pattern matched against the (port-stripped, lowercased) Host header.
-   * Placeholders: `{name}` (any segment), `{name:int}`, `{name:slug}`.
+   * Placeholders: `{name}` (any segment), `{name:int}`, `{name:slug}`,
+   * `{name:multi}` (one or more dot-segments — for DNS-passthrough).
    */
   match: string;
   /**
@@ -118,7 +119,7 @@ export function parseRoutesYaml(yaml: string): RoutesFile {
 }
 
 const PLACEHOLDER_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
-const VALID_KINDS = new Set(["", "int", "slug"]);
+const VALID_KINDS = new Set(["", "int", "slug", "multi"]);
 
 /** Find all `{name[:kind]}` placeholders in `s`. */
 function placeholdersIn(s: string): Placeholder[] {
@@ -134,6 +135,7 @@ function placeholdersIn(s: string): Placeholder[] {
     if (rawKind === "" || rawKind === "any") kind = "any";
     else if (rawKind === "int") kind = "int";
     else if (rawKind === "slug") kind = "slug";
+    else if (rawKind === "multi") kind = "multi";
     else kind = "any"; // validation pass will reject if not in VALID_KINDS
     out.push({ name, kind });
   }
@@ -186,7 +188,7 @@ export function validateRoute(r: RouteConfig): ValidationResult {
     if (!VALID_KINDS.has(kind))
       return {
         valid: false,
-        reason: `unknown placeholder kind ':${kind}' for '{${name}}' (expected int|slug)`,
+        reason: `unknown placeholder kind ':${kind}' for '{${name}}' (expected int|slug|multi)`,
       };
     if (declared.has(name))
       return {

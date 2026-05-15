@@ -13,9 +13,13 @@
 //!
 //! Placeholders in patterns and templates use brace syntax:
 //!
-//! * `{name}`      — matches one host segment: `[^.]+`
-//! * `{name:int}`  — matches one numeric segment: `\d+`
-//! * `{name:slug}` — matches `[a-z0-9-]+`
+//! * `{name}`       — matches one host segment: `[^.]+`
+//! * `{name:int}`   — matches one numeric segment: `\d+`
+//! * `{name:slug}`  — matches `[a-z0-9-]+`
+//! * `{name:multi}` — matches one or more dot-separated segments:
+//!                    `[^.]+(\.[^.]+)*`. Use this for DNS-passthrough
+//!                    patterns like `{upstream:multi}.{domain}` that
+//!                    need to capture e.g. `github.com` as one value.
 //!
 //! A given placeholder name can appear in both the `match` pattern
 //! (where it captures) and in the `target` / `headers` templates
@@ -67,6 +71,10 @@ pub enum PlaceholderKind {
     Int,
     /// `{name:slug}` — matches `[a-z0-9-]+`.
     Slug,
+    /// `{name:multi}` — matches one or more dot-separated segments.
+    /// Use for DNS-passthrough patterns (e.g. `{upstream:multi}.fbi.com`
+    /// capturing `github.com` as one value).
+    Multi,
 }
 
 impl PlaceholderKind {
@@ -75,6 +83,7 @@ impl PlaceholderKind {
             PlaceholderKind::Any => "[^.]+",
             PlaceholderKind::Int => r"\d+",
             PlaceholderKind::Slug => "[a-z0-9-]+",
+            PlaceholderKind::Multi => r"[^.]+(?:\.[^.]+)*",
         }
     }
 }
@@ -183,7 +192,7 @@ impl fmt::Display for CompileError {
                 write!(f, "route '{}': invalid placeholder '{{{}}}': {}", route, placeholder, reason)
             }
             CompileError::UnknownKind { route, name, kind } => {
-                write!(f, "route '{}': unknown placeholder kind ':{}' for '{{{}}}' (expected int|slug or none)", route, kind, name)
+                write!(f, "route '{}': unknown placeholder kind ':{}' for '{{{}}}' (expected int|slug|multi or none)", route, kind, name)
             }
             CompileError::DuplicatePlaceholder { route, name } => {
                 write!(f, "route '{}': placeholder '{{{}}}' declared twice in match pattern", route, name)
@@ -270,6 +279,7 @@ fn parse_kind(route: &str, name: &str, kind: Option<&str>) -> Result<Placeholder
         None | Some("") => Ok(PlaceholderKind::Any),
         Some("int") => Ok(PlaceholderKind::Int),
         Some("slug") => Ok(PlaceholderKind::Slug),
+        Some("multi") => Ok(PlaceholderKind::Multi),
         Some(other) => Err(CompileError::UnknownKind {
             route: route.to_string(),
             name: name.to_string(),
@@ -860,6 +870,55 @@ mod tests {
         .unwrap();
         let hit = match_host_with_domain(&routes, "myserver.other.com", Some("fbi.example.com"));
         assert!(hit.is_none());
+    }
+
+    #[test]
+    fn multi_kind_captures_multi_dot_segments() {
+        let routes = compile(vec![RouteConfig {
+            name: "dns-passthrough".into(),
+            r#match: "{upstream:multi}.fbi.com".into(),
+            target: "{upstream}:80".into(),
+            headers: None,
+        }])
+        .unwrap();
+
+        let hit = match_host(&routes, "github.com.fbi.com").unwrap();
+        assert_eq!(hit.target, "github.com:80");
+
+        let hit = match_host(&routes, "api.example.org.fbi.com").unwrap();
+        assert_eq!(hit.target, "api.example.org:80");
+
+        // Single segment still matches (one-or-more).
+        let hit = match_host(&routes, "single.fbi.com").unwrap();
+        assert_eq!(hit.target, "single:80");
+    }
+
+    #[test]
+    fn multi_kind_with_host_header_rewrite() {
+        let routes = compile(vec![RouteConfig {
+            name: "dns-with-host".into(),
+            r#match: "{upstream:multi}.fbi.com".into(),
+            target: "{upstream}:443".into(),
+            headers: Some(HashMap::from([("Host".into(), "{upstream}".into())])),
+        }])
+        .unwrap();
+        let hit = match_host(&routes, "api.example.com.fbi.com").unwrap();
+        assert_eq!(hit.target, "api.example.com:443");
+        assert_eq!(hit.host_header.as_deref(), Some("api.example.com"));
+    }
+
+    #[test]
+    fn multi_kind_with_routes_yaml() {
+        let yaml = r#"
+routes:
+  - name: dns-passthrough
+    match: "{upstream:multi}.{domain}"
+    target: "{upstream}:80"
+"#;
+        let parsed = parse_yaml(yaml).unwrap();
+        let routes = compile(parsed.routes).unwrap();
+        let hit = match_host(&routes, "github.com.fbi.com").unwrap();
+        assert_eq!(hit.target, "github.com:80");
     }
 
     #[test]

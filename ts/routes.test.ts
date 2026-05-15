@@ -161,4 +161,22 @@ describe("validateRoute", () => {
       expect(validateRoute(r)).toEqual({ valid: true });
     }
   });
+
+  it("accepts {name:multi} for DNS-passthrough patterns", () => {
+    const dnsRoute: RouteConfig = {
+      name: "dns-passthrough",
+      match: "{upstream:multi}.{domain}",
+      target: "{upstream}:80",
+    };
+    expect(validateRoute(dnsRoute)).toEqual({ valid: true });
+  });
+
+  it("rejects {name:wrong} but accepts {name:multi}", () => {
+    expect(
+      validateRoute({ ...good, match: "{x:wrong}.{domain}", target: "x" }),
+    ).toMatchObject({ valid: false });
+    expect(
+      validateRoute({ ...good, match: "{x:multi}.{domain}", target: "{x}" }),
+    ).toEqual({ valid: true });
+  });
 });
