@@ -52,7 +52,10 @@
     "execa": "^9.6.1",
     "from-node-stream": "^0.1.2",
     "get-port": "^7.1.0",
+    "hono": "^4.12.18",
     "hot-memo": "^1.1.1",
+    "jose": "^6.2.3",
+    "oauth4webapi": "^3.8.6",
     "sflow": "^1.27.0",
     "tsa-composer": "^1.0.0",
     "yargs": "^17.7.2"
@@ -70,6 +73,7 @@
     "husky": "^9.1.7",
     "lint-staged": "^16.2.7",
     "node-fetch": "^3.3.2",
+    "oxmgr": "^0.4.0",
     "playwright": "^1.58.2",
     "prettier": "^3.8.1",
     "semantic-release": "^24.0.0",
@@ -92,5 +96,7 @@
   "engines": {
     "node": ">=22.14.0"
   },
-  "trustedDependencies": []
+  "trustedDependencies": [
+    "oxmgr"
+  ]
 }
