@@ -1,0 +1,49 @@
+# fbi-proxy default routing rules.
+#
+# Evaluated top-to-bottom; the first rule whose `match` pattern matches
+# the incoming Host header (after stripping the port and the configured
+# --domain suffix, if any) wins.
+#
+# Placeholder syntax:
+#   {name}        - one host segment, no dot      ([^.]+)
+#   {name:int}    - one numeric segment           (\d+)
+#   {name:slug}   - lowercase-alnum + dash        ([a-z0-9-]+)
+#
+# A placeholder name that appears in both the `match` pattern and the
+# `target` / `headers` templates is substituted from its capture.
+#
+# These four rules reproduce the hardcoded behavior of `parse_host` in
+# rs/fbi-proxy.rs. Edit, reorder, or extend as needed.
+
+version: 1
+
+routes:
+  # 1. Port-as-host: "3000.fbi.com" -> 127.0.0.1:3000 (no Host rewrite).
+  #    Must come before host-double-dash-port so that a bare numeric
+  #    subdomain isn't accidentally interpreted as a hostname.
+  - name: port-as-host
+    match: "{port:int}.{domain}"
+    target: "127.0.0.1:{port}"
+
+  # 2. Host--port: "api--3001.fbi.com" -> api:3001, Host: api.
+  - name: host-double-dash-port
+    match: "{host}--{port:int}.{domain}"
+    target: "{host}:{port}"
+    headers:
+      Host: "{host}"
+
+  # 3. Subdomain hoisting: "admin.app.fbi.com" -> app:80, Host: admin.
+  #    Useful for routing multiple virtual hosts behind one backend.
+  - name: subdomain-hoisting
+    match: "{prefix}.{host}.{domain}"
+    target: "{host}:80"
+    headers:
+      Host: "{prefix}"
+
+  # 4. Direct forward: "myserver.fbi.com" -> myserver:80, Host: myserver.
+  #    The catch-all. Must come last.
+  - name: direct-forward
+    match: "{host}.{domain}"
+    target: "{host}:80"
+    headers:
+      Host: "{host}"
