@@ -214,7 +214,50 @@ After 200, every subsequent request to `*.your-domain` carries the cookie and hi
 
 ### 5. Wire forward_auth into your reverse proxy
 
-#### Caddy (recommended)
+#### Automatic setup with `--with-caddy` (Phase 3 — shipped)
+
+The one-line canonical command writes the Caddyfile for you and supervises Caddy
+as a child process alongside fbi-proxy and fbi-auth:
+
+```bash
+bunx fbi-proxy --with-caddy --with-auth --domain your-domain.com
+```
+
+What this does, in order:
+
+1. Starts the Rust proxy (port `FBI_PROXY_PORT`, default `2432`).
+2. Starts `fbi-auth` (Hono, default port `2433`) using `~/.config/fbi-proxy/auth.json`.
+3. Generates `~/.config/fbi-proxy/Caddyfile` from your config and spawns Caddy
+   with that file. The shape matches the manual Caddyfile in
+   [Manual setup (advanced)](#manual-setup-advanced) below.
+4. On `SIGINT`/`SIGTERM`, shuts down in reverse order: Caddy, then fbi-auth,
+   then the Rust proxy.
+
+TLS strategy:
+
+- `--domain fbi.com` (default) uses `tls internal` — Caddy's local CA. Trusted
+  only on the machine running Caddy. Perfect for laptop demos.
+- Any other domain defaults to ACME (Let's Encrypt). You can be explicit with
+  `--tls-mode auto` or `--tls-mode internal`.
+- Add `--acme-email you@example.com` to register an account email with
+  Let's Encrypt for expiration notifications.
+
+Prerequisites:
+
+- A Caddy binary on `$PATH` (`brew install caddy`, `apt install caddy`,
+  `scoop install caddy`, or `winget install CaddyServer.Caddy`).
+- Alternately, point fbi-proxy at a specific binary with
+  `CADDY_BIN=/path/to/caddy bunx fbi-proxy --with-caddy …`.
+- Phase 3.1 will auto-download the latest Caddy release from GitHub when none
+  is installed.
+
+`--with-caddy` also works **without** `--with-auth` — in that case the
+generated Caddyfile only contains a `*.<domain>` block that reverse-proxies to
+fbi-proxy, with no `forward_auth` and no `sso.<domain>` site.
+
+#### Manual setup (advanced)
+
+If you prefer to run Caddy yourself, drop this into your own `Caddyfile`:
 
 ```caddyfile
 sso.your-domain.com {
@@ -232,8 +275,6 @@ sso.your-domain.com {
   reverse_proxy 127.0.0.1:2432
 }
 ```
-
-In Phase 3, `--with-caddy --with-auth` will write this file for you.
 
 #### nginx (sketch)
 
@@ -317,6 +358,6 @@ Three rule types in `auth.json::allowlist`, evaluated in order — first match w
 Roadmap from [TODO.md](../TODO.md):
 
 - **Phase 2 (shipped):** Firebase provider, `POST /api/auth/firebase`, first-run interactive wizard, `--reconfigure`.
-- **Phase 3:** `--with-caddy --with-auth` auto-generates the Caddyfile and supervises Caddy alongside the proxy.
+- **Phase 3 (shipped):** `--with-caddy --with-auth` auto-generates the Caddyfile and supervises Caddy alongside the proxy. (Phase 3.1: auto-download the Caddy binary when not on `$PATH`.)
 - **Phase 4:** Snolab default IdP (PKCE flow, zero config for `.fbi.com`).
 - **Phase 5:** SQLite-backed sessions, audit log.

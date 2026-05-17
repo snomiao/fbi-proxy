@@ -15,6 +15,17 @@ import {
 } from "./auth/authConfig";
 import { spawnFbiAuth, type FbiAuthHandle } from "./auth/spawnFbiAuth";
 import { isTty, readlinePrompter, runWizard } from "./auth/setupWizard";
+import {
+  defaultCaddyfilePath,
+  writeCaddyfile,
+  type CaddyfileOpts,
+} from "./auth/caddyfileGen";
+import {
+  caddyNotFoundMessage,
+  resolveCaddyBinary,
+  spawnCaddy,
+  type CaddyHandle,
+} from "./auth/spawnCaddy";
 
 const originalCwd = process.cwd();
 process.chdir(path.resolve(import.meta.dir, ".."));
@@ -31,6 +42,12 @@ const argv = await yargs(hideBin(process.argv))
     description:
       "Start the fbi-auth gateway alongside the proxy (Phase 1: Google OAuth)",
   })
+  .option("with-caddy", {
+    type: "boolean",
+    default: false,
+    description:
+      "Auto-generate a Caddyfile and spawn Caddy alongside the proxy",
+  })
   .option("domain", {
     type: "string",
     default: "fbi.com",
@@ -41,6 +58,17 @@ const argv = await yargs(hideBin(process.argv))
     default: false,
     description:
       "Run the interactive fbi-auth setup wizard to (re)write auth.json (requires a TTY)",
+  })
+  .option("acme-email", {
+    type: "string",
+    description:
+      "Optional ACME account email for the generated Caddyfile (Let's Encrypt notifications)",
+  })
+  .option("tls-mode", {
+    type: "string",
+    choices: ["auto", "internal"] as const,
+    description:
+      "TLS strategy for --with-caddy. 'auto' uses ACME (Let's Encrypt); 'internal' uses Caddy's local CA. Defaults to 'internal' for fbi.com, 'auto' otherwise.",
   })
   .help().argv;
 
@@ -77,10 +105,25 @@ if (argv["with-auth"]) {
   });
 }
 
+let caddyHandle: CaddyHandle | undefined;
+if (argv["with-caddy"]) {
+  caddyHandle =
+    (await startCaddy({
+      domain: argv.domain,
+      fbiProxyPort: Number(FBI_PROXY_PORT),
+      fbiAuthPort: authHandle?.port,
+      withAuth: Boolean(argv["with-auth"]),
+      acmeEmail: argv["acme-email"],
+      tlsMode:
+        (argv["tls-mode"] as "auto" | "internal" | undefined) ?? undefined,
+    })) ?? undefined;
+}
+
 console.log("All services started successfully!");
 
 const exit = () => {
   console.log("Shutting down...");
+  caddyHandle?.kill();
   authHandle?.kill();
   proxyProcess?.kill?.();
   process.exit(0);
@@ -139,5 +182,62 @@ async function startFbiAuth(opts: {
   console.log(
     `[fbi-auth] PID ${handle.pid} listening on 127.0.0.1:${handle.port}`,
   );
+  return handle;
+}
+
+async function startCaddy(opts: {
+  domain: string;
+  fbiProxyPort: number;
+  fbiAuthPort: number | undefined;
+  withAuth: boolean;
+  acmeEmail?: string;
+  tlsMode?: "auto" | "internal";
+}): Promise<CaddyHandle | null> {
+  // Verify Caddy is present before generating anything, so the error message
+  // is the first thing the user sees instead of a stray Caddyfile on disk.
+  const binary = await resolveCaddyBinary();
+  if (!binary) {
+    console.error(caddyNotFoundMessage());
+    return null;
+  }
+
+  if (opts.withAuth && opts.fbiAuthPort === undefined) {
+    console.error(
+      "[caddy] --with-auth was requested but fbi-auth failed to start; refusing to spawn Caddy with a broken forward_auth target.",
+    );
+    return null;
+  }
+
+  const domain = opts.domain.startsWith(".")
+    ? opts.domain.slice(1)
+    : opts.domain;
+  const tlsMode: "auto" | "internal" =
+    opts.tlsMode ?? (domain === "fbi.com" ? "internal" : "auto");
+
+  const caddyOpts: CaddyfileOpts = {
+    domain,
+    fbiProxyPort: opts.fbiProxyPort,
+    tlsMode,
+    acmeEmail: opts.acmeEmail,
+    withAuth: opts.withAuth,
+    ...(opts.withAuth && opts.fbiAuthPort !== undefined
+      ? {
+          ssoHost: `sso.${domain}`,
+          fbiAuthPort: opts.fbiAuthPort,
+        }
+      : {}),
+  };
+
+  const caddyfilePath = defaultCaddyfilePath();
+  const { path: writtenPath } = await writeCaddyfile(caddyOpts, caddyfilePath);
+  console.log(`[caddy] wrote Caddyfile → ${writtenPath}`);
+  console.log(
+    `[caddy] domain=${domain} tlsMode=${tlsMode} withAuth=${opts.withAuth}`,
+  );
+
+  const handle = await spawnCaddy({ caddyfilePath: writtenPath, binary });
+  if (handle) {
+    console.log(`[caddy] PID ${handle.pid}`);
+  }
   return handle;
 }

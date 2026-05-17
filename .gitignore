@@ -6,6 +6,10 @@ target
 dist
 release
 
-# caddy binaries
-caddy*
+# caddy binaries (downloaded by spawnCaddy.ts fallback)
+/Caddyfile
+/caddy
+/caddy.exe
+caddy-*.tar.gz
+caddy-*.zip
 tmp

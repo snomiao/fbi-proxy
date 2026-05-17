@@ -26,9 +26,13 @@ FBI-Proxy provides easy HTTPS access to your local services with intelligent dom
 
 ## Roadmap
 
+### Shipped ✅
+
+- [x] **Auto Caddy Setup** - One-command bootstrap that generates a Caddyfile for the chosen domain and supervises Caddy alongside fbi-proxy and fbi-auth (`bunx fbi-proxy --with-caddy --with-auth --domain example.dev`). See [docs/auth/setup.md](lib/fbi-auth/docs/setup.md#automatic-setup-with---with-caddy-phase-3--shipped). Phase 3.1 will auto-download the Caddy binary; today you need it installed (`brew install caddy` / `apt install caddy` / `scoop install caddy`).
+
 ### Next Up 🚧
 
-- [ ] **Auto Caddy Setup** - One-command bootstrap that installs Caddy, writes a Caddyfile for the chosen domain, and starts both processes together (`bunx fbi-proxy --with-caddy -d example.dev`)
+- [ ] **Phase 3.1: Auto-download Caddy** - Fetch the latest Caddy release from GitHub when no binary is on `$PATH`, so `--with-caddy` works on a totally fresh machine
 - [ ] **Custom Domain Wizard** - Interactive setup that prints the DNS records to add (`*.example.dev → <ip>`) and generates the matching Caddyfile / DNS-01 TLS block
 - [ ] **Built-in HTTPS (optional)** - Native TLS termination via rustls + ACME so Caddy becomes optional for simple setups
 - [ ] **Configuration File Support** - YAML/JSON config for persistent routing rules
