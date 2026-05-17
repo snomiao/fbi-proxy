@@ -1,6 +1,6 @@
 # fbi-auth — OAuth2 Gateway for fbi-proxy
 
-> **Status:** Phase 2. Google OAuth **and** Firebase Auth. First-run interactive wizard. Snolab default IdP still to come (Phase 4).
+> **Status:** Phases 1–4. Google OAuth, Firebase Auth, and the snolab default IdP (zero-config sign-in on supported domains). First-run interactive wizard. See [snolab.md](snolab.md) for the project-owner setup of snolab.
 
 `fbi-auth` is a small Hono service that puts a sign-in gate in front of fbi-proxy. It implements [Caddy's `forward_auth` protocol](https://caddyserver.com/docs/caddyfile/directives/forward_auth), so any reverse proxy that supports forward_auth (Caddy, Traefik, nginx with `auth_request`) can call it to decide "is this request authenticated?".
 
@@ -350,14 +350,14 @@ Three rule types in `auth.json::allowlist`, evaluated in order — first match w
 
 ## Troubleshooting
 
-| Symptom                                                        | Likely cause                                                                                                                                 |
-| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Forbidden: email '…' not in allowlist` after sign-in          | `allowlist.anySignedIn` is `false` and the user's email/domain isn't listed.                                                                 |
-| Browser bounces between `/login` and the upstream              | Cookie wasn't set — `Domain=.your-domain` doesn't match the host you're visiting. Check `cookieDomain` in `auth.json`.                       |
-| `oauth error: …` on `/callback`                                | Wrong `clientSecret`, the redirect URI doesn't match what's registered in Google Console, or the state expired (10 min TTL).                 |
-| `Unknown provider: …` or `provider 'snolab' requires clientId` | Only `google` and `firebase` are implemented. `snolab` is reserved for the Phase 4 default IdP.                                              |
-| `firebase verify failed: …` from `/api/auth/firebase`          | Bad ID token. Check the token's `aud` matches `firebase.projectId`, the user finished email verification, and the system clock isn't skewed. |
-| TLS warnings on `*.fbi.com` for teammates                      | Expected — `tls internal` only trusts on the Caddy host. Use your own domain + public CA for shareable setups (see [README](../README.md)).  |
+| Symptom                                               | Likely cause                                                                                                                                       |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Forbidden: email '…' not in allowlist` after sign-in | `allowlist.anySignedIn` is `false` and the user's email/domain isn't listed.                                                                       |
+| Browser bounces between `/login` and the upstream     | Cookie wasn't set — `Domain=.your-domain` doesn't match the host you're visiting. Check `cookieDomain` in `auth.json`.                             |
+| `oauth error: …` on `/callback`                       | Wrong `clientSecret`, the redirect URI doesn't match what's registered in Google Console, or the state expired (10 min TTL).                       |
+| `snolab default IdP isn't published yet`              | The snolab Google OAuth client ID hasn't been baked into this build. Use `--provider google` with your own client ID — see [snolab.md](snolab.md). |
+| `firebase verify failed: …` from `/api/auth/firebase` | Bad ID token. Check the token's `aud` matches `firebase.projectId`, the user finished email verification, and the system clock isn't skewed.       |
+| TLS warnings on `*.fbi.com` for teammates             | Expected — `tls internal` only trusts on the Caddy host. Use your own domain + public CA for shareable setups (see [README](../README.md)).        |
 
 ## What's next
 
@@ -365,5 +365,5 @@ Roadmap from [TODO.md](../TODO.md):
 
 - **Phase 2 (shipped):** Firebase provider, `POST /api/auth/firebase`, first-run interactive wizard, `--reconfigure`.
 - **Phase 3 (shipped):** `--with-caddy --with-auth` auto-generates the Caddyfile and supervises Caddy alongside the proxy. Phase 3.1 (shipped): auto-download the Caddy binary when not on `$PATH`.
-- **Phase 4:** Snolab default IdP (PKCE flow, zero config for `.fbi.com`).
+- **Phase 4 (shipped):** Snolab default IdP infrastructure (PKCE flow, zero-config sign-in on supported domains). Awaiting public values — see [snolab.md](snolab.md).
 - **Phase 5:** SQLite-backed sessions, audit log.

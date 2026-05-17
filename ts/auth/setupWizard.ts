@@ -29,9 +29,10 @@ export async function runWizard(
   const providerIdx = await prompter.askChoice("Identity provider", [
     "Google OAuth (BYO client ID + secret)",
     "Firebase Auth (BYO project ID)",
+    "Snolab default (zero-config; supported domains only)",
   ]);
   const provider: AuthConfigShape["provider"] =
-    providerIdx === 0 ? "google" : "firebase";
+    providerIdx === 0 ? "google" : providerIdx === 1 ? "firebase" : "snolab";
 
   let clientId: string | undefined;
   let clientSecret: string | undefined;
@@ -53,7 +54,7 @@ export async function runWizard(
       `  → Add this redirect URI in Google Cloud Console: https://sso.${cleanDomain}/callback`,
     );
     prompter.print("");
-  } else {
+  } else if (provider === "firebase") {
     const projectId = await prompter.ask(
       "Firebase Project ID",
       opts.existing?.firebase?.projectId,
@@ -71,6 +72,19 @@ export async function runWizard(
       apiKey: apiKey.trim() || undefined,
       authDomain: authDomain.trim() || undefined,
     };
+  } else {
+    // provider === "snolab" — no credentials to collect. The IdP values
+    // are baked into lib/fbi-auth/src/snolabDefaults.ts. Server startup
+    // will surface a clear error if the snolab project hasn't published
+    // values yet, or if the chosen domain isn't on the supported list.
+    prompter.print("");
+    prompter.print(
+      `  → Snolab default IdP — no credentials needed. Domain '${cleanDomain}'`,
+    );
+    prompter.print(
+      `    will be checked against SNOLAB_SUPPORTED_DOMAINS at startup.`,
+    );
+    prompter.print("");
   }
 
   const allowIdx = await prompter.askChoice("Allowlist policy", [

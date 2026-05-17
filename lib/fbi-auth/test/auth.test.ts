@@ -596,4 +596,82 @@ describe("setup wizard", () => {
     expect(cfg.cookieDomain).toBe(".fbi.com");
     expect(cfg.ssoHost).toBe("sso.fbi.com");
   });
+
+  it("snolab branch — picks provider snolab and stores no credentials", async () => {
+    // domain (empty → default), provider choice 2 (snolab), allowlist 0
+    const p = scriptedPrompter([""], [2, 0]);
+    const cfg = await runWizard(p, { domain: "fbi.com", existing: null });
+    expect(cfg.provider).toBe("snolab");
+    expect(cfg.clientId).toBeUndefined();
+    expect(cfg.clientSecret).toBeUndefined();
+    expect(cfg.firebase).toBeUndefined();
+    expect(cfg.domain).toBe("fbi.com");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 4 — Snolab default IdP
+// ─────────────────────────────────────────────────────────────────────────────
+
+import {
+  isSnolabGoogleConfigured,
+  isSnolabFirebaseConfigured,
+  snolabSupportsDomain,
+  snolabUnavailableMessage,
+  SNOLAB_SUPPORTED_DOMAINS,
+} from "../src/snolabDefaults";
+
+describe("snolab defaults", () => {
+  it("ships fbi.com in the supported-domains list", () => {
+    expect(SNOLAB_SUPPORTED_DOMAINS).toContain("fbi.com");
+  });
+
+  it("snolabSupportsDomain tolerates a leading dot", () => {
+    expect(snolabSupportsDomain("fbi.com")).toBe(true);
+    expect(snolabSupportsDomain(".fbi.com")).toBe(true);
+    expect(snolabSupportsDomain("example.dev")).toBe(false);
+  });
+
+  it("reports unconfigured / unsupported with actionable error text", () => {
+    // Current build: client ID hasn't been baked in yet. Either branch
+    // (unconfigured OR unsupported-domain) returns a non-empty message
+    // that points the user at --provider google.
+    if (!isSnolabGoogleConfigured()) {
+      const msg = snolabUnavailableMessage("fbi.com");
+      expect(msg).toContain("snolab default IdP isn't published yet");
+      expect(msg).toContain("--reconfigure");
+    } else {
+      // If/when SNOLAB_GOOGLE_CLIENT_ID is published, the configured
+      // path returns "" for supported domains and an unsupported-domain
+      // message for everything else.
+      expect(snolabUnavailableMessage("fbi.com")).toBe("");
+      expect(snolabUnavailableMessage("nope.example")).toContain(
+        "isn't supported",
+      );
+    }
+  });
+
+  it("firebase isn't required to be configured", () => {
+    // Firebase defaults are optional — the boolean just reports state.
+    expect(typeof isSnolabFirebaseConfigured()).toBe("boolean");
+  });
+});
+
+describe("server / snolab branch", () => {
+  it("buildApp throws a snolabUnavailable error when not configured", async () => {
+    if (isSnolabGoogleConfigured()) {
+      // Once the snolab project owner publishes values, this test will
+      // be a no-op — the unavailable path can only be exercised in the
+      // unpublished build.
+      return;
+    }
+    const { buildApp } = await import("../src/server");
+    const cfg: AuthConfig = {
+      ...fakeConfig(),
+      provider: "snolab",
+      clientId: undefined,
+      clientSecret: undefined,
+    };
+    await expect(buildApp(cfg)).rejects.toThrow(/snolab default IdP/);
+  });
 });

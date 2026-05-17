@@ -4,6 +4,12 @@ import { makeSession } from "./session";
 import { makeStateStore } from "./state";
 import { makeGoogleProvider } from "./providers/google";
 import { makeFirebaseProvider } from "./providers/firebase";
+import {
+  SNOLAB_GOOGLE_CLIENT_ID,
+  isSnolabGoogleConfigured,
+  snolabSupportsDomain,
+  snolabUnavailableMessage,
+} from "./snolabDefaults";
 import { healthRoute } from "./routes/health";
 import { verifyRoute } from "./routes/verify";
 import { loginRoute } from "./routes/login";
@@ -29,12 +35,25 @@ export async function buildApp(configOverride?: AuthConfig) {
   app.route("/", logoutRoute({ config }));
   app.route("/", meRoute({ session }));
 
-  if (config.provider === "google" || config.provider === "snolab") {
+  if (config.provider === "google") {
     if (!config.clientId)
-      throw new Error(`provider '${config.provider}' requires clientId`);
+      throw new Error("provider 'google' requires clientId");
     const provider = await makeGoogleProvider({
       clientId: config.clientId,
       clientSecret: config.clientSecret,
+      redirectUri,
+    });
+    app.route("/", loginRoute({ provider, states, ssoOrigin }));
+    app.route("/", callbackRoute({ config, provider, session, states }));
+  } else if (config.provider === "snolab") {
+    if (!isSnolabGoogleConfigured() || !snolabSupportsDomain(config.domain)) {
+      throw new Error(snolabUnavailableMessage(config.domain));
+    }
+    // PKCE-only flow: clientSecret intentionally undefined so
+    // makeGoogleProvider uses oauth.None() instead of ClientSecretPost.
+    const provider = await makeGoogleProvider({
+      clientId: SNOLAB_GOOGLE_CLIENT_ID!,
+      clientSecret: undefined,
       redirectUri,
     });
     app.route("/", loginRoute({ provider, states, ssoOrigin }));

@@ -103,11 +103,15 @@ function validate(c: AuthConfig): void {
     throw new Error("auth config: 'cookieDomain' is required");
   if (!c.provider) throw new Error("auth config: 'provider' is required");
 
-  if (c.provider === "google" || c.provider === "snolab") {
+  if (c.provider === "google") {
     if (!c.clientId)
       throw new Error(
-        `auth config: 'clientId' is required when provider is '${c.provider}'`,
+        "auth config: 'clientId' is required when provider is 'google'",
       );
+  } else if (c.provider === "snolab") {
+    // No clientId required — values come from snolabDefaults.ts. Domain
+    // support and publication-state checks happen at server startup
+    // (so the validator stays free of side-effects / imports).
   } else if (c.provider === "firebase") {
     if (!c.firebase?.projectId)
       throw new Error(
