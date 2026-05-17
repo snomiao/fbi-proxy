@@ -242,14 +242,20 @@ TLS strategy:
 - Add `--acme-email you@example.com` to register an account email with
   Let's Encrypt for expiration notifications.
 
-Prerequisites:
+No prerequisites — on a fresh machine, fbi-proxy automatically downloads
+the latest Caddy release from GitHub, verifies its SHA-512 against the
+release's `checksums.txt`, extracts it to `~/.fbi-proxy/bin/caddy`, and
+uses it. The binary is reused on subsequent runs.
 
-- A Caddy binary on `$PATH` (`brew install caddy`, `apt install caddy`,
-  `scoop install caddy`, or `winget install CaddyServer.Caddy`).
-- Alternately, point fbi-proxy at a specific binary with
-  `CADDY_BIN=/path/to/caddy bunx fbi-proxy --with-caddy …`.
-- Phase 3.1 will auto-download the latest Caddy release from GitHub when none
-  is installed.
+Resolution order (first hit wins):
+
+1. `CADDY_BIN=/path/to/caddy` — explicit override
+2. `caddy` already on `$PATH` (e.g. `brew install caddy`,
+   `apt install caddy`, `scoop install caddy`, `winget install CaddyServer.Caddy`)
+3. `~/.fbi-proxy/bin/caddy` — previously auto-downloaded
+4. Download the latest GitHub release (~30 MB on first run) — set
+   `FBI_CADDY_AUTO_DOWNLOAD=false` to disable (e.g. for air-gapped boxes;
+   you'll need to install Caddy yourself in that case).
 
 `--with-caddy` also works **without** `--with-auth` — in that case the
 generated Caddyfile only contains a `*.<domain>` block that reverse-proxies to
@@ -358,6 +364,6 @@ Three rule types in `auth.json::allowlist`, evaluated in order — first match w
 Roadmap from [TODO.md](../TODO.md):
 
 - **Phase 2 (shipped):** Firebase provider, `POST /api/auth/firebase`, first-run interactive wizard, `--reconfigure`.
-- **Phase 3 (shipped):** `--with-caddy --with-auth` auto-generates the Caddyfile and supervises Caddy alongside the proxy. (Phase 3.1: auto-download the Caddy binary when not on `$PATH`.)
+- **Phase 3 (shipped):** `--with-caddy --with-auth` auto-generates the Caddyfile and supervises Caddy alongside the proxy. Phase 3.1 (shipped): auto-download the Caddy binary when not on `$PATH`.
 - **Phase 4:** Snolab default IdP (PKCE flow, zero config for `.fbi.com`).
 - **Phase 5:** SQLite-backed sessions, audit log.

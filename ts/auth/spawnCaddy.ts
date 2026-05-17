@@ -4,6 +4,7 @@ import { constants as fsConstants } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { $ } from "../dSpawn";
+import { downloadCaddy } from "./downloadCaddy";
 
 export type CaddyHandle = {
   pid: number | undefined;
@@ -16,9 +17,13 @@ export type CaddyHandle = {
  * Resolve the Caddy binary, preferring (in order):
  *   1. `CADDY_BIN` env var
  *   2. `caddy` on $PATH (homebrew, apt, scoop, xcaddy, …)
- *   3. `~/.fbi-proxy/bin/caddy` (Phase 3.1: auto-downloaded)
+ *   3. `~/.fbi-proxy/bin/caddy` (previously auto-downloaded)
+ *   4. Auto-download the latest release from GitHub, verify SHA-512,
+ *      install to `~/.fbi-proxy/bin/caddy`, and use it.
  *
- * Returns `null` if none are present, so the CLI can print a helpful error.
+ * Set `FBI_CADDY_AUTO_DOWNLOAD=false` to disable step 4 (e.g. for
+ * air-gapped environments). When disabled and steps 1-3 all miss,
+ * returns `null` so the CLI can print a helpful error.
  */
 export async function resolveCaddyBinary(): Promise<string | null> {
   const fromEnv = process.env.CADDY_BIN;
@@ -32,15 +37,34 @@ export async function resolveCaddyBinary(): Promise<string | null> {
     return downloaded;
   }
 
-  return null;
+  if (process.env.FBI_CADDY_AUTO_DOWNLOAD === "false") {
+    return null;
+  }
+
+  try {
+    console.log(
+      "[caddy] no binary found — downloading the latest release from GitHub (~30 MB).",
+    );
+    console.log("[caddy] (set FBI_CADDY_AUTO_DOWNLOAD=false to opt out)");
+    const path = await downloadCaddy({
+      log: (m) => console.log(`[caddy-download] ${m}`),
+    });
+    return path;
+  } catch (err) {
+    console.error(`[caddy] auto-download failed: ${(err as Error).message}`);
+    return null;
+  }
 }
 
 export function caddyNotFoundMessage(): string {
   return [
     "",
-    "[fbi-proxy] --with-caddy was passed but no Caddy binary was found.",
+    "[fbi-proxy] --with-caddy was passed but Caddy could not be found or downloaded.",
     "",
-    "Install Caddy via one of:",
+    "Auto-download from GitHub Releases is the default — if you saw a",
+    "download error above, check your network or set FBI_CADDY_AUTO_DOWNLOAD=false",
+    "and install Caddy manually:",
+    "",
     "  - macOS:    brew install caddy",
     "  - Debian:   sudo apt install caddy   (or see https://caddyserver.com/docs/install)",
     "  - Windows:  scoop install caddy      (or: winget install CaddyServer.Caddy)",
@@ -48,8 +72,6 @@ export function caddyNotFoundMessage(): string {
     "",
     "Or point fbi-proxy at an existing binary:",
     "  CADDY_BIN=/path/to/caddy bunx fbi-proxy --with-caddy --domain <your-domain>",
-    "",
-    "(Phase 3.1 will auto-download Caddy from the GitHub release if it's missing.)",
     "",
   ].join("\n");
 }
