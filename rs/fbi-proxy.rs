@@ -1,4 +1,5 @@
 use clap::{Arg, Command};
+use fbi_proxy::routes::{self, CompiledRoute, RouteHit};
 use futures_util::{SinkExt, StreamExt};
 use http_body_util::{BodyExt, Full};
 use hyper::body::{Bytes, Incoming};
@@ -23,18 +24,22 @@ use tokio_tungstenite::connect_async;
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 type BoxBody = http_body_util::combinators::BoxBody<Bytes, hyper::Error>;
 
+/// Bundled default routes.yaml — reproduces the original `parse_host`
+/// behavior. Loaded at compile-time so the binary works out-of-the-box.
+const BUNDLED_ROUTES_YAML: &str = include_str!("../routes.yaml");
+
 pub struct FBIProxy {
     client: Client<HttpConnector, BoxBody>,
     number_regex: Regex,
     domain_filter: Option<String>,
+    compiled_routes: Vec<CompiledRoute>,
 }
 
 /*
-FBIProxy is a simple HTTP and WebSocket proxy server that supports port encoding in the Host header.
-
-parse incoming Host headers and convert them to a target URL format:
-
-for localhost, it uses "localhost"
+FBIProxy is a simple HTTP and WebSocket proxy server with rule-based
+host header routing. The rules are loaded from `routes.yaml` (bundled
+by default, overridable via --routes). See the bundled `routes.yaml`
+for the default 8 rules; in short:
 
 rule1: number host goes to local port
     - Host="3000" => localhost:3000
@@ -52,15 +57,13 @@ rule3: subdomains are hoisted
     - 3000.amd => proxies to http://amd:80, with host: 3000
     - sur.amd => proxies to http://amd:80, with host: sur
     - amd.sur.amd => proxies to http://amd:80, with host: amd.sur
-        - if sur also runs fbi-proxy, it will proxies to http://amd:80, with host: amd
-    - 3000.sur.amd => proxies to http://amd:80, with host: 3000.sur
 
-for subdomains
-*.amd => localhost:amd
-
+When `--domain` (or `FBI_PROXY_DOMAIN`) is set, only hosts ending with
+that suffix are accepted. The exact-domain host (e.g. `fbi.com`) serves
+the landing page.
 */
 impl FBIProxy {
-    pub fn new(domain_filter: Option<String>) -> Self {
+    pub fn new(domain_filter: Option<String>, compiled_routes: Vec<CompiledRoute>) -> Self {
         let mut connector = HttpConnector::new();
         // Set connection timeout to 5 seconds to avoid hanging on invalid hosts
         connector.set_connect_timeout(Some(Duration::from_secs(3)));
@@ -72,6 +75,7 @@ impl FBIProxy {
             client,
             number_regex: Regex::new(r"^\d+$").unwrap(),
             domain_filter,
+            compiled_routes,
         }
     }
 
@@ -165,77 +169,52 @@ npx fbi-proxy -d fbi.example.com  # Only accept *.fbi.example.com</pre>
 </html>"#.to_string()
     }
 
-    fn parse_host(&self, host_header: &str, domain_filter: &Option<String>) -> Option<(String, String)> {
-        // Remove port if present (e.g., "localhost:8080" -> "localhost")
-        let host_without_port = if let Some(colon_pos) = host_header.find(':') {
-            &host_header[..colon_pos]
-        } else {
-            host_header
+    /// Extract the hostname portion (before the first `:`) from a target
+    /// string like `"127.0.0.1:3000"`. This is the default `Host` header
+    /// value used when a matched rule doesn't specify an explicit
+    /// `headers.Host` rewrite — which preserves the original
+    /// `parse_host` semantics (numeric subdomain → Host: localhost).
+    fn host_from_target(target: &str) -> String {
+        match target.find(':') {
+            Some(i) => target[..i].to_string(),
+            None => target.to_string(),
+        }
+    }
+
+    /// Returns Some((target, new_host_header)) if the routing engine
+    /// matches `host_header`, accounting for:
+    ///   * domain filter pre-check (host must end with the configured
+    ///     domain suffix, if any),
+    ///   * exact-domain match → ("@LANDING", "@LANDING") so the request
+    ///     handler serves the landing page,
+    ///   * normal rule match → (target, host_header).
+    ///
+    /// Returns None if the host is rejected (filter mismatch or no
+    /// matching rule).
+    fn route(&self, host_header: &str) -> Option<(String, String)> {
+        // Drop port if present.
+        let host_without_port = match host_header.find(':') {
+            Some(i) => &host_header[..i],
+            None => host_header,
         };
-        
-        // Apply domain filter if specified
-        let host = if let Some(domain) = domain_filter {
-            if !domain.is_empty() {
-                // Check if host ends with the domain filter
-                if host_without_port.ends_with(domain) {
-                    // Strip the domain suffix (including the dot)
-                    let prefix_len = host_without_port.len() - domain.len();
-                    if prefix_len > 0 && host_without_port.chars().nth(prefix_len - 1) == Some('.') {
-                        // Remove the domain and the dot before it
-                        &host_without_port[..prefix_len - 1]
-                    } else if prefix_len == 0 {
-                        // The host is exactly the domain, treat as root
-                        "@"
-                    } else {
-                        // No dot separator, invalid format
-                        return None;
-                    }
-                } else {
-                    // Host doesn't match domain filter
-                    return None;
-                }
-            } else {
-                // Empty domain filter, accept all
-                host_without_port
+
+        // Exact-domain match → serve landing page. Only relevant when a
+        // domain filter is configured.
+        if let Some(ref domain) = self.domain_filter {
+            if !domain.is_empty() && host_without_port.eq_ignore_ascii_case(domain) {
+                return Some(("@LANDING".to_string(), "@LANDING".to_string()));
             }
-        } else {
-            // No domain filter, accept all
-            host_without_port
-        };
-
-        // Handle special case: @ means root domain was accessed - serve landing page
-        if host == "@" {
-            return Some(("@LANDING".to_string(), "@LANDING".to_string()));
-        }
-        
-        // Rule 1: number host goes to local port (e.g., "3000" => "localhost:3000")
-        if self.number_regex.is_match(host) {
-            return Some((format!("localhost:{}", host), "localhost".to_string()));
         }
 
-        // Rule 1.2: host--port goes to host:port (e.g., "localhost--3000" => "localhost:3000")
-        if let Some(double_dash_pos) = host.find("--") {
-            let hostname = &host[..double_dash_pos];
-            let port = &host[double_dash_pos + 2..];
-            return Some((format!("{}:{}", hostname, port), hostname.to_string()));
-        }
+        let hit = routes::match_host_with_domain(
+            &self.compiled_routes,
+            host_header,
+            self.domain_filter.as_deref(),
+        )?;
 
-        // Rule 3: subdomains are hoisted
-        let parts: Vec<&str> = host.split('.').collect();
-        if parts.len() > 1 {
-            // The last part is the main domain, everything before is subdomain
-            let main_domain = parts.last().unwrap();
-            let subdomain_parts = &parts[..parts.len() - 1];
-            let subdomain = subdomain_parts.join(".");
-
-            // Target is the main domain on port 80
-            let target_host = format!("{}:80", main_domain);
-            // New host header is the subdomain
-            return Some((target_host, subdomain.to_string()));
-        }
-
-        // Rule 2: other host goes to that host:80 (e.g., "localhost" => "localhost:80")
-        Some((format!("{}:80", host), host.to_string()))
+        let RouteHit { target, host_header: rewrite, .. } = hit;
+        let new_host = rewrite.unwrap_or_else(|| Self::host_from_target(&target));
+        Some((target, new_host))
     }
 
     pub async fn handle_request(&self, req: Request<Incoming>) -> Result<Response<BoxBody>, BoxError> {
@@ -247,9 +226,9 @@ npx fbi-proxy -d fbi.example.com  # Only accept *.fbi.example.com</pre>
             .unwrap_or("localhost")
             .to_string();
 
-        // Parse host with domain filtering
-        let parsed_host = self.parse_host(&host_header, &self.domain_filter);
-        
+        // Route the host via the rule engine.
+        let parsed_host = self.route(&host_header);
+
         // If domain filter rejects the host, return 502 Bad Gateway
         let (target_host, new_host) = match parsed_host {
             Some(hosts) => hosts,
@@ -590,10 +569,29 @@ async fn handle_connection(
     }
 }
 
-pub async fn start_proxy_server(host: Option<&str>, port: u16, domain_filter: Option<String>) -> Result<(), BoxError> {
+/// Load routes from `routes.yaml` source text and compile them. Panics
+/// with a descriptive message on parse or compile failure — this is
+/// only invoked at startup, so failing fast is the right policy.
+fn load_routes(yaml_src: &str, source_label: &str) -> Vec<CompiledRoute> {
+    let parsed = match routes::parse_yaml(yaml_src) {
+        Ok(p) => p,
+        Err(e) => panic!("failed to parse {}: {}", source_label, e),
+    };
+    match routes::compile(parsed.routes) {
+        Ok(c) => c,
+        Err(e) => panic!("failed to compile {}: {}", source_label, e),
+    }
+}
+
+pub async fn start_proxy_server(
+    host: Option<&str>,
+    port: u16,
+    domain_filter: Option<String>,
+    compiled_routes: Vec<CompiledRoute>,
+) -> Result<(), BoxError> {
     let host = host.unwrap_or("127.0.0.1");
     let addr: SocketAddr = format!("{}:{}", host, port).parse()?;
-    let proxy = Arc::new(FBIProxy::new(domain_filter.clone()));
+    let proxy = Arc::new(FBIProxy::new(domain_filter.clone(), compiled_routes));
 
     let listener = TcpListener::bind(addr).await?;
 
@@ -606,7 +604,7 @@ pub async fn start_proxy_server(host: Option<&str>, port: u16, domain_filter: Op
     }
     println!();
     println!("== HOW IT WORKS ==");
-    println!("Routes requests based on Host header:");
+    println!("Routes requests based on Host header (configurable via routes.yaml):");
     println!("  3000         -> localhost:3000  (port as host)");
     println!("  api--8080    -> api:8080        (host--port syntax)");
     println!("  3000.fbi.com -> localhost:3000  (subdomain as port)");
@@ -660,11 +658,11 @@ fn main() {
 
 FEATURES:
   • HTTP and WebSocket proxying with bidirectional forwarding
-  • Smart host header parsing with multiple routing rules
+  • Smart host header parsing with multiple routing rules (configurable via routes.yaml)
   • Port encoding support for easy local development
   • Subdomain hoisting for multi-service architectures
 
-HOST PARSING RULES:
+HOST PARSING RULES (default routes.yaml):
   1. Number host → local port:     '3000' → localhost:3000
   2. Host--port syntax:            'api--3000' → api:3000
   3. Subdomain hoisting:           'api.service' → service:80 (host: api)
@@ -674,6 +672,7 @@ ENVIRONMENT VARIABLES:
   FBI_PROXY_PORT                   Port to listen on (default: 2432)
   FBI_PROXY_HOST                   Host/IP address to bind to (default: 127.0.0.1)
   FBI_PROXY_DOMAIN                 Domain filter (only accept *.domain requests)
+  FBI_PROXY_ROUTES                 Path to a custom routes.yaml (default: bundled)
   RUST_LOG                         Log level (error, warn, info, debug, trace)
 
 EXAMPLES:
@@ -681,6 +680,7 @@ EXAMPLES:
   fbi-proxy -p 8080               # Custom port
   fbi-proxy -h 0.0.0.0 -p 3000   # Bind to all interfaces
   fbi-proxy -d example.com        # Only accept *.example.com requests
+  fbi-proxy -r ./my-routes.yaml   # Use a custom routing config
   FBI_PROXY_PORT=8080 fbi-proxy   # Use environment variable
 
 TRY RUN:
@@ -719,6 +719,15 @@ TRY RUN:
                 .env("FBI_PROXY_DOMAIN")
                 .default_value("")
         )
+        .arg(
+            Arg::new("routes")
+                .short('r')
+                .long("routes")
+                .value_name("PATH")
+                .help("Path to a custom routes.yaml (env: FBI_PROXY_ROUTES, default: bundled)")
+                .env("FBI_PROXY_ROUTES")
+                .default_value("")
+        )
         .get_matches();
 
     let port = matches
@@ -732,11 +741,26 @@ TRY RUN:
 
     let host = matches.get_one::<String>("host").unwrap();
     let domain = matches.get_one::<String>("domain").unwrap();
-    
+    let routes_path = matches.get_one::<String>("routes").unwrap();
+
     let domain_filter = if domain.is_empty() {
         None
     } else {
         Some(domain.clone())
+    };
+
+    // Load routes: either from --routes <path> or the bundled default.
+    let compiled_routes = if routes_path.is_empty() {
+        load_routes(BUNDLED_ROUTES_YAML, "bundled routes.yaml")
+    } else {
+        let src = match std::fs::read_to_string(routes_path) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("error: failed to read --routes file '{}': {}", routes_path, e);
+                std::process::exit(2);
+            }
+        };
+        load_routes(&src, &format!("routes file '{}'", routes_path))
     };
 
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -745,7 +769,7 @@ TRY RUN:
             "Starting FBI-Proxy on {}:{} with domain filter: {:?}",
             host, port, domain_filter
         );
-        if let Err(e) = start_proxy_server(Some(host), port, domain_filter).await {
+        if let Err(e) = start_proxy_server(Some(host), port, domain_filter, compiled_routes).await {
             error!("Failed to start proxy server: {}", e);
         }
     });

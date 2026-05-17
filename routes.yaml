@@ -1,49 +1,87 @@
 # fbi-proxy default routing rules.
 #
 # Evaluated top-to-bottom; the first rule whose `match` pattern matches
-# the incoming Host header (after stripping the port and the configured
-# --domain suffix, if any) wins.
+# the incoming Host header (after stripping the port) wins.
 #
 # Placeholder syntax:
 #   {name}        - one host segment, no dot      ([^.]+)
 #   {name:int}    - one numeric segment           (\d+)
 #   {name:slug}   - lowercase-alnum + dash        ([a-z0-9-]+)
+#   {name:multi}  - one or more dot-separated segments
 #
 # A placeholder name that appears in both the `match` pattern and the
 # `target` / `headers` templates is substituted from its capture.
 #
-# These four rules reproduce the hardcoded behavior of `parse_host` in
-# rs/fbi-proxy.rs. Edit, reorder, or extend as needed.
+# These rules reproduce the hardcoded behavior of the original
+# `parse_host` in rs/fbi-proxy.rs:
+#   * Rule 1   - "3000.fbi.com"      -> localhost:3000
+#   * Rule 1.2 - "api--3001.fbi.com" -> api:3001        (Host: api)
+#   * Rule 3   - "admin.app.fbi.com" -> app:80          (Host: admin)
+#   * Rule 2   - "myserver.fbi.com"  -> myserver:80     (Host: myserver)
+#
+# When no `--domain` is configured, the trailing `.{domain}` is absent
+# from the incoming Host header. The `*-bare` rules below cover that
+# case so behavior matches `parse_host` exactly:
+#   * "3000"           -> localhost:3000               (Host: localhost)
+#   * "api--3001"      -> api:3001                     (Host: api)
+#   * "3000.localhost" -> localhost:80                 (Host: 3000)
+#   * "localhost"      -> localhost:80                 (Host: localhost)
+#
+# Edit, reorder, or extend as needed.
 
 version: 1
 
 routes:
-  # 1. Port-as-host: "3000.fbi.com" -> 127.0.0.1:3000 (no Host rewrite).
-  #    Must come before host-double-dash-port so that a bare numeric
-  #    subdomain isn't accidentally interpreted as a hostname.
+  # 1. Port-as-host with domain: "3000.fbi.com" -> localhost:3000 (Host: localhost).
+  #    Must come before host-double-dash-port-with-domain so a bare
+  #    numeric subdomain isn't misinterpreted as a hostname.
   - name: port-as-host
     match: "{port:int}.{domain}"
-    target: "127.0.0.1:{port}"
+    target: "localhost:{port}"
 
-  # 2. Host--port: "api--3001.fbi.com" -> api:3001, Host: api.
+  # 2. Port-as-host bare (no --domain): "3000" -> localhost:3000.
+  - name: port-as-host-bare
+    match: "{port:int}"
+    target: "localhost:{port}"
+
+  # 3. Host--port with domain: "api--3001.fbi.com" -> api:3001, Host: api.
   - name: host-double-dash-port
     match: "{host}--{port:int}.{domain}"
     target: "{host}:{port}"
     headers:
       Host: "{host}"
 
-  # 3. Subdomain hoisting: "admin.app.fbi.com" -> app:80, Host: admin.
-  #    Useful for routing multiple virtual hosts behind one backend.
+  # 4. Host--port bare: "api--3001" -> api:3001, Host: api.
+  - name: host-double-dash-port-bare
+    match: "{host}--{port:int}"
+    target: "{host}:{port}"
+    headers:
+      Host: "{host}"
+
+  # 5. Subdomain hoisting with domain: "admin.app.fbi.com" -> app:80, Host: admin.
   - name: subdomain-hoisting
     match: "{prefix}.{host}.{domain}"
     target: "{host}:80"
     headers:
       Host: "{prefix}"
 
-  # 4. Direct forward: "myserver.fbi.com" -> myserver:80, Host: myserver.
-  #    The catch-all. Must come last.
+  # 6. Subdomain hoisting bare: "3000.localhost" -> localhost:80, Host: 3000.
+  - name: subdomain-hoisting-bare
+    match: "{prefix}.{host}"
+    target: "{host}:80"
+    headers:
+      Host: "{prefix}"
+
+  # 7. Direct forward with domain: "myserver.fbi.com" -> myserver:80, Host: myserver.
   - name: direct-forward
     match: "{host}.{domain}"
+    target: "{host}:80"
+    headers:
+      Host: "{host}"
+
+  # 8. Direct forward bare (catch-all): "localhost" -> localhost:80, Host: localhost.
+  - name: direct-forward-bare
+    match: "{host}"
     target: "{host}:80"
     headers:
       Host: "{host}"
