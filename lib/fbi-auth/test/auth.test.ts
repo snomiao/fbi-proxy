@@ -635,6 +635,28 @@ describe("setup wizard", () => {
     expect(cfg.firebase).toBeUndefined();
     expect(cfg.domain).toBe("fbi.com");
   });
+
+  it("stays silent about DNS for the default fbi.com domain", async () => {
+    const p = scriptedPrompter([""], [2, 0]);
+    await runWizard(p, { domain: "fbi.com", existing: null });
+    const joined = p.printed.join("\n");
+    expect(joined).not.toContain("Custom-domain DNS");
+    expect(joined).not.toContain("CLOUDFLARE_API_TOKEN");
+  });
+
+  it("prints DNS + Caddyfile hints when the domain is non-fbi.com", async () => {
+    // domain=example.dev, provider=snolab(2), allowlist=anySignedIn(0)
+    const p = scriptedPrompter(["example.dev"], [2, 0]);
+    const cfg = await runWizard(p, { domain: "fbi.com", existing: null });
+    expect(cfg.domain).toBe("example.dev");
+    const joined = p.printed.join("\n");
+    expect(joined).toContain("Custom-domain DNS + TLS hints");
+    expect(joined).toContain("*.example.dev     A    <your-public-ip>");
+    expect(joined).toContain("sso.example.dev");
+    expect(joined).toContain("CLOUDFLARE_API_TOKEN");
+    expect(joined).toContain("--with-caddy --tls-mode auto");
+    expect(joined).toContain("--tls-mode internal");
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

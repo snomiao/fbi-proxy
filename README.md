@@ -11,42 +11,50 @@ FBI-Proxy provides easy HTTPS access to your local services with intelligent dom
 
 ### Current Features ✅
 
-- **Intelligent Domain Routing**: Multiple routing patterns for flexible service access
+- **One-command HTTPS gateway**: `bunx fbi-proxy --with-caddy --with-auth --provider snolab --domain fbi.com` brings up Caddy (auto-downloaded), fbi-auth (Firebase-backed Google sign-in), and the Rust proxy together — zero config needed on `.fbi.com`.
+- **Rule-based Domain Routing** via `routes.yaml`:
   - Port-based routing (e.g., `3000.fbi.com` → `localhost:3000`)
   - Host--Port routing (e.g., `api--3001.fbi.com` → `api:3001`)
   - Subdomain routing with Host headers (e.g., `admin.app.fbi.com` → `app:80`)
   - Direct host forwarding (e.g., `myserver.fbi.com` → `myserver:80`)
-- **WebSocket Support**: Full WebSocket connection support for all routing patterns
-- **High Performance**: Built with Rust for optimal performance and low resource usage
-- **Easy Setup**: Simple one-command installation and startup
-- **Docker Support**: Available as a Docker image for containerized deployments
-- **Flexible Configuration**: Environment variables and CLI options for customization
-- **Cross-Platform**: Works on macOS, Linux, and Windows
-- **Integration Ready**: Compatible with reverse proxies like Caddy for HTTPS
+  - Placeholder syntax (`{name}`, `{name:int}`, `{name:slug}`, `{name:multi}`) for custom rules — see [docs/routing.md](docs/routing.md)
+- **HTTPS Upstreams**: Targets with an `https://` prefix connect to upstream over TLS (Mozilla webpki roots).
+- **WebSocket Support**: Full WebSocket forwarding (`ws://` and `wss://`) for all routing patterns.
+- **Auth Gateway**: Google OAuth / Firebase Auth / zero-config snolab default IdP — JWT cookie scoped to `Domain=.your-domain` for cross-subdomain SSO. Audit log at `~/.config/fbi-proxy/audit.log`.
+- **High Performance**: Built with Rust for optimal performance and low resource usage.
+- **Easy Setup**: Simple one-command installation and startup.
+- **Docker Support**: Available as a Docker image for containerized deployments.
+- **Flexible Configuration**: Environment variables, CLI options, and `routes.yaml` overrides.
+- **Cross-Platform**: Pre-built binaries for macOS, Linux, and Windows (x64 + arm64).
+- **Integration Ready**: Compatible with reverse proxies like Caddy for HTTPS (and bundles its own `--with-caddy` automation).
 
 ## Roadmap
 
 ### Shipped ✅
 
-- [x] **Auto Caddy Setup** - One-command bootstrap that generates a Caddyfile for the chosen domain and supervises Caddy alongside fbi-proxy and fbi-auth (`bunx fbi-proxy --with-caddy --with-auth --domain example.dev`). Caddy binary is auto-downloaded from GitHub Releases on first run (SHA-512 verified against the release's `checksums.txt`), cached at `~/.fbi-proxy/bin/caddy`. Set `FBI_CADDY_AUTO_DOWNLOAD=false` to opt out. See [docs/auth/setup.md](lib/fbi-auth/docs/setup.md#automatic-setup-with---with-caddy-phase-3--shipped).
+- [x] **Auto Caddy Setup** — One-command bootstrap that generates a Caddyfile for the chosen domain and supervises Caddy alongside fbi-proxy and fbi-auth (`bunx fbi-proxy --with-caddy --with-auth --domain example.dev`). Caddy binary is auto-downloaded from GitHub Releases on first run (SHA-512 verified against the release's `checksums.txt`), cached at `~/.fbi-proxy/bin/caddy`. Set `FBI_CADDY_AUTO_DOWNLOAD=false` to opt out.
+- [x] **Auth Gateway** — Google OAuth, Firebase Auth, and a **zero-config snolab default IdP** (Firebase-based, live on `fbi.com`). Cookie-based SSO across `*.your-domain`. Sliding-window refresh, configurable threshold, JSONL audit log at `~/.config/fbi-proxy/audit.log`. See [lib/fbi-auth/docs/setup.md](lib/fbi-auth/docs/setup.md) and [lib/fbi-auth/docs/snolab.md](lib/fbi-auth/docs/snolab.md).
+- [x] **Rule-based Routing** — `routes.yaml` with placeholder syntax (`{name}`, `{name:int}`, `{name:slug}`, `{name:multi}`). DNS-passthrough, k8s, Docker, and PR-preview recipes in [docs/routing.md](docs/routing.md). Override the bundled defaults with `--routes` or `FBI_PROXY_ROUTES`.
+- [x] **HTTPS Upstream Support** — Route target with an `https://` prefix triggers TLS to upstream via `hyper-rustls` + Mozilla webpki roots. Backward compatible — plain `host:port` still uses HTTP. WebSocket upgrades flip to `wss://` automatically.
+- [x] **Cross-platform Releases** — Every push builds six platforms in parallel (linux x64/arm64, macOS x64/arm64, windows x64/arm64). See [docs/cross-compile-tradeoffs.html](docs/cross-compile-tradeoffs.html).
 
 ### Next Up 🚧
 
-- [ ] **Custom Domain Wizard** - Interactive setup that prints the DNS records to add (`*.example.dev → <ip>`) and generates the matching Caddyfile / DNS-01 TLS block
-- [ ] **Built-in HTTPS (optional)** - Native TLS termination via rustls + ACME so Caddy becomes optional for simple setups
-- [ ] **Configuration File Support** - YAML/JSON config for persistent routing rules
-- [ ] **Access Control** - Domain filtering, host/port whitelisting
-- [ ] **Request Logging** - Basic access logs for debugging
-- [ ] **Health Checks** - Simple upstream service availability monitoring
+- [ ] **Custom Domain Wizard polish** — Print the DNS A-records to add (`*.example.dev → <ip>`) and a Caddyfile-with-DNS-01 sample for Cloudflare during `--reconfigure` on a non-fbi.com domain
+- [ ] **Hot Reload** — Watch `routes.yaml` and recompile rules without a restart
+- [ ] **Metrics** — `/varz`-style counters: requests, 2xx/4xx/5xx, upstream-connect-failures, sessions-issued, sessions-refreshed (Prometheus format)
+- [ ] **Health Checks** — Active upstream liveness probes, not just per-request failure detection
+- [ ] **Cloudflare Tunnel / ngrok Integration** — Expose `*.your-domain` publicly without owning a static IP
 
 ### Future Improvements 🔮
 
-- [ ] **Load Balancing** - Round-robin between multiple upstream targets
-- [ ] **Metrics** - Basic statistics (requests, response times, errors)
-- [ ] **Hot Reload** - Update configuration without restart
-- [ ] **Custom Headers** - Add/modify headers for specific routes
-- [ ] **Cloudflare Tunnel / ngrok Integration** - Expose `*.your-domain` to the public internet without owning a static IP
-- [ ] **Auth Gateway** - Built-in basic auth / OIDC so public exposure is safe by default
+- [ ] **Load Balancing** — Round-robin between multiple upstream targets for one route
+- [ ] **Custom Headers per route** — Beyond `Host:`, add response headers or rewrite request headers
+
+### Won't do
+
+- ~~**Built-in HTTPS via rustls + ACME**~~ — Caddy already does this very well, and the `--with-caddy` UX is one extra flag. Adding another ACME client to the Rust binary is more code, more attack surface, and another implementation of a solved problem. Caddy stays the canonical TLS path.
+- ~~**SQLite session storage**~~ — JWT + `sessionSecret` rotation covers the threat model for fbi-proxy's intended scale (solo / small-team self-hosted). See [revoking sessions](lib/fbi-auth/docs/setup.md#revoking-sessions).
 
 ## Routing Examples
 

@@ -133,7 +133,55 @@ export async function runWizard(
   prompter.print(JSON.stringify(redact(cfg), null, 2));
   prompter.print("");
 
+  if (cleanDomain !== "fbi.com") {
+    printCustomDomainHints(prompter, cleanDomain);
+  }
+
   return cfg;
+}
+
+function printCustomDomainHints(prompter: WizardPrompter, domain: string) {
+  prompter.print("─── Custom-domain DNS + TLS hints ───");
+  prompter.print("");
+  prompter.print(`Your domain is '${domain}' (not the default fbi.com).`);
+  prompter.print(`You'll need DNS A-records pointing the wildcard + sso host`);
+  prompter.print(`at the public IP of the machine running fbi-proxy:`);
+  prompter.print("");
+  prompter.print(`    *.${domain}     A    <your-public-ip>`);
+  prompter.print(
+    `    sso.${domain}   A    <your-public-ip>      (covered by the wildcard,`,
+  );
+  prompter.print(
+    `                                                 but call it out explicitly)`,
+  );
+  prompter.print("");
+  prompter.print(`For wildcard TLS via Let's Encrypt you need DNS-01 (HTTP-01`);
+  prompter.print(`can't issue wildcards). With Cloudflare DNS:`);
+  prompter.print("");
+  prompter.print(
+    `  1. Create a Cloudflare API token with Zone:DNS:Edit on '${domain}'.`,
+  );
+  prompter.print(`  2. Export it: CLOUDFLARE_API_TOKEN=...`);
+  prompter.print(
+    `  3. Run with --with-caddy --tls-mode auto. fbi-proxy will generate`,
+  );
+  prompter.print(`     a Caddyfile that uses Caddy's cloudflare DNS plugin:`);
+  prompter.print("");
+  prompter.print(`     *.${domain} {`);
+  prompter.print(`       tls { dns cloudflare {env.CLOUDFLARE_API_TOKEN} }`);
+  prompter.print(`       reverse_proxy 127.0.0.1:{$FBI_PROXY_PORT}`);
+  prompter.print(`     }`);
+  prompter.print("");
+  prompter.print(
+    `If you're just testing locally without public DNS, point your`,
+  );
+  prompter.print(
+    `/etc/hosts at 127.0.0.1 and pass --tls-mode internal — Caddy will`,
+  );
+  prompter.print(
+    `use its local CA (the cert won't be trusted by other machines).`,
+  );
+  prompter.print("");
 }
 
 function redact(c: AuthConfigShape): AuthConfigShape {
