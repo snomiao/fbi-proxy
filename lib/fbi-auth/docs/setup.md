@@ -330,7 +330,27 @@ location @login {
 - Attributes: `Domain=.your-domain`, `Path=/`, `HttpOnly`, `Secure`, `SameSite=Lax`, `Max-Age=7d`
 - Value: HS256 JWT signed with `sessionSecret`
 - Claims: `sub`, `email`, `name?`, `picture?`, `iat`, `exp`, `iss=fbi-auth`, `aud=<domain>`
-- Sliding refresh: `/api/auth/verify` reissues the cookie when less than 24 h remain.
+- Sliding refresh: `/api/auth/verify` reissues the cookie when less than 24 h remain. Override via `FBI_AUTH_REFRESH_THRESHOLD_SECONDS`.
+
+### Revoking sessions
+
+There is no per-session revoke endpoint. fbi-auth is stateless by design — the JWT is the session. For the threat model this targets (solo / small-team self-hosted), session storage in a DB would be on the hot path of every `/api/auth/verify` call and earns its keep only at much larger scale.
+
+To invalidate every outstanding cookie at once (lost device, suspected compromise, end of project, etc.) **rotate the session secret**:
+
+```bash
+# 1. Generate a fresh secret
+NEW_SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))")
+
+# 2. Edit auth.json — only the sessionSecret field needs to change
+jq --arg s "$NEW_SECRET" '.sessionSecret = $s' ~/.config/fbi-proxy/auth.json > /tmp/auth.json && mv /tmp/auth.json ~/.config/fbi-proxy/auth.json
+chmod 600 ~/.config/fbi-proxy/auth.json
+
+# 3. Restart fbi-proxy. All existing __fbi_sso cookies fail signature
+#    verification on next /api/auth/verify and users re-sign-in.
+```
+
+This is the sledgehammer — there's no "log out user X without disturbing user Y." If you need that, you've outgrown fbi-proxy's intended use case and should be running an IdP with stateful sessions (Authelia, Keycloak, Auth0).
 
 ## Allowlist
 

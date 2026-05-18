@@ -57,7 +57,7 @@ Architecture: separate Bun/TS service at `./lib/fbi-auth` (Hono + jose + oauth4w
 - [x] Sliding-window refresh — configurable via `FBI_AUTH_REFRESH_THRESHOLD_SECONDS` (default 24h)
 - [x] `--reconfigure` polish — change detection, "no changes — skipping write" path, defaults from existing
 - [x] Audit log to `~/.config/fbi-proxy/audit.log` (JSONL, env `FBI_AUTH_AUDIT=0` to disable)
-- [ ] SQLite upgrade path (preserve `{issue, verify, revoke}` interface) — **deferred to its own PR**
+- [x] ~~SQLite session storage~~ — **won't do.** JWT + `sessionSecret` rotation covers the threat model (solo / small-team self-hosted). Adding a DB on the hot path (every `/api/auth/verify`) costs more than it gains. See `lib/fbi-auth/docs/setup.md` → "Revoking sessions" for the rotate-the-secret pattern.
 
 ## Routing Engine
 
