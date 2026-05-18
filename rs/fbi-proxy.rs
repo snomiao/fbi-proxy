@@ -11,7 +11,8 @@ use hyper_tungstenite::{HyperWebsocket, WebSocketStream};
 use hyper_util::client::legacy::{Client, connect::HttpConnector};
 use hyper_util::rt::TokioIo;
 use hyper_rustls::HttpsConnector;
-use log::{error, info};
+use arc_swap::ArcSwap;
+use log::{error, info, warn};
 use regex::Regex;
 use std::convert::Infallible;
 use std::net::SocketAddr;
@@ -33,7 +34,10 @@ pub struct FBIProxy {
     client: Client<HttpsConnector<HttpConnector>, BoxBody>,
     number_regex: Regex,
     domain_filter: Option<String>,
-    compiled_routes: Vec<CompiledRoute>,
+    /// Compiled routes wrapped in an ArcSwap so they can be replaced
+    /// atomically at runtime (hot reload from `--routes`). Reads use
+    /// `.load()` and never block; writes are atomic Arc swaps.
+    compiled_routes: Arc<ArcSwap<Vec<CompiledRoute>>>,
 }
 
 /*
@@ -85,8 +89,15 @@ impl FBIProxy {
             client,
             number_regex: Regex::new(r"^\d+$").unwrap(),
             domain_filter,
-            compiled_routes,
+            compiled_routes: Arc::new(ArcSwap::from_pointee(compiled_routes)),
         }
+    }
+
+    /// Return a handle to the live routes Arc so callers (e.g. the
+    /// file watcher) can swap them at runtime without re-creating the
+    /// proxy.
+    pub fn routes_handle(&self) -> Arc<ArcSwap<Vec<CompiledRoute>>> {
+        Arc::clone(&self.compiled_routes)
     }
 
     fn landing_page_html() -> String {
@@ -216,8 +227,12 @@ npx fbi-proxy -d fbi.example.com  # Only accept *.fbi.example.com</pre>
             }
         }
 
+        // Lock-free read of the live routes (may have been swapped by
+        // the file watcher mid-flight). `.load()` returns an Arc; we
+        // hold a reference for the duration of the match.
+        let routes_guard = self.compiled_routes.load();
         let hit = routes::match_host_with_domain(
-            &self.compiled_routes,
+            routes_guard.as_ref(),
             host_header,
             self.domain_filter.as_deref(),
         )?;
@@ -616,15 +631,114 @@ fn load_routes(yaml_src: &str, source_label: &str) -> Vec<CompiledRoute> {
     }
 }
 
+/// Parse + compile a routes file without panicking. Returns Err with a
+/// human-readable message on any failure. Used by the hot-reload path
+/// where we want to log + keep current rules rather than crash.
+fn try_reload_routes(path: &str) -> Result<Vec<CompiledRoute>, String> {
+    let yaml = std::fs::read_to_string(path)
+        .map_err(|e| format!("read {}: {}", path, e))?;
+    let parsed = routes::parse_yaml(&yaml)
+        .map_err(|e| format!("parse {}: {}", path, e))?;
+    routes::compile(parsed.routes)
+        .map_err(|e| format!("compile {}: {}", path, e))
+}
+
+/// Watch a routes file and atomically swap in new rules on change.
+/// Debounces flurries of FS events (some editors save by truncate+
+/// rewrite which can fire multiple notifications in ~ms). On parse or
+/// compile failure, log a warning and leave the existing rules in
+/// place — the running proxy continues to work with whatever last
+/// loaded successfully.
+fn spawn_routes_watcher(
+    path: String,
+    handle: Arc<ArcSwap<Vec<CompiledRoute>>>,
+) {
+    use notify::{RecursiveMode, Watcher};
+    use std::sync::mpsc;
+
+    std::thread::spawn(move || {
+        let (tx, rx) = mpsc::channel();
+        let mut watcher = match notify::recommended_watcher(move |res| {
+            // Best-effort forward; if the receiver is gone the watcher
+            // thread is shutting down anyway.
+            let _ = tx.send(res);
+        }) {
+            Ok(w) => w,
+            Err(e) => {
+                error!("[routes hot-reload] failed to create watcher: {}", e);
+                return;
+            }
+        };
+
+        if let Err(e) = watcher.watch(
+            std::path::Path::new(&path),
+            RecursiveMode::NonRecursive,
+        ) {
+            error!("[routes hot-reload] failed to watch {}: {}", path, e);
+            return;
+        }
+
+        info!("[routes hot-reload] watching {}", path);
+
+        // Debounce window — wait this long for the burst to subside
+        // before reloading.
+        const DEBOUNCE: Duration = Duration::from_millis(150);
+
+        loop {
+            // Block for the next event.
+            match rx.recv() {
+                Ok(Ok(_event)) => {}
+                Ok(Err(e)) => {
+                    warn!("[routes hot-reload] watcher error: {}", e);
+                    continue;
+                }
+                Err(_) => break, // sender dropped — proxy shutting down
+            }
+            // Drain any additional events that arrive during the debounce
+            // window, so a single save that fires 3 events triggers
+            // exactly one reload.
+            loop {
+                match rx.recv_timeout(DEBOUNCE) {
+                    Ok(_) => continue,
+                    Err(_) => break,
+                }
+            }
+
+            match try_reload_routes(&path) {
+                Ok(new_routes) => {
+                    let n = new_routes.len();
+                    handle.store(Arc::new(new_routes));
+                    info!("[routes hot-reload] reloaded {} rule(s) from {}", n, path);
+                }
+                Err(reason) => {
+                    warn!(
+                        "[routes hot-reload] reload failed, keeping previous rules: {}",
+                        reason
+                    );
+                }
+            }
+        }
+    });
+}
+
 pub async fn start_proxy_server(
     host: Option<&str>,
     port: u16,
     domain_filter: Option<String>,
     compiled_routes: Vec<CompiledRoute>,
+    watch_path: Option<String>,
 ) -> Result<(), BoxError> {
     let host = host.unwrap_or("127.0.0.1");
     let addr: SocketAddr = format!("{}:{}", host, port).parse()?;
     let proxy = Arc::new(FBIProxy::new(domain_filter.clone(), compiled_routes));
+
+    // Hot-reload: when the user pointed us at a routes file with
+    // --routes, spawn a background watcher that re-parses + swaps in
+    // new rules on file change. Failures leave the current rules in
+    // place — never crash the running proxy because of a typo in YAML.
+    if let Some(path) = watch_path {
+        spawn_routes_watcher(path, proxy.routes_handle());
+    }
 
     let listener = TcpListener::bind(addr).await?;
 
@@ -783,8 +897,10 @@ TRY RUN:
     };
 
     // Load routes: either from --routes <path> or the bundled default.
-    let compiled_routes = if routes_path.is_empty() {
-        load_routes(BUNDLED_ROUTES_YAML, "bundled routes.yaml")
+    // The bundled YAML is baked into the binary and can't change at
+    // runtime, so hot reload only applies to the --routes path.
+    let (compiled_routes, watch_path) = if routes_path.is_empty() {
+        (load_routes(BUNDLED_ROUTES_YAML, "bundled routes.yaml"), None)
     } else {
         let src = match std::fs::read_to_string(routes_path) {
             Ok(s) => s,
@@ -793,7 +909,10 @@ TRY RUN:
                 std::process::exit(2);
             }
         };
-        load_routes(&src, &format!("routes file '{}'", routes_path))
+        (
+            load_routes(&src, &format!("routes file '{}'", routes_path)),
+            Some(routes_path.clone()),
+        )
     };
 
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -802,7 +921,15 @@ TRY RUN:
             "Starting FBI-Proxy on {}:{} with domain filter: {:?}",
             host, port, domain_filter
         );
-        if let Err(e) = start_proxy_server(Some(host), port, domain_filter, compiled_routes).await {
+        if let Err(e) = start_proxy_server(
+            Some(host),
+            port,
+            domain_filter,
+            compiled_routes,
+            watch_path,
+        )
+        .await
+        {
             error!("Failed to start proxy server: {}", e);
         }
     });

@@ -40,8 +40,8 @@ FBI-Proxy provides easy HTTPS access to your local services with intelligent dom
 
 ### Next Up 🚧
 
-- [ ] **Custom Domain Wizard polish** — Print the DNS A-records to add (`*.example.dev → <ip>`) and a Caddyfile-with-DNS-01 sample for Cloudflare during `--reconfigure` on a non-fbi.com domain
-- [ ] **Hot Reload** — Watch `routes.yaml` and recompile rules without a restart
+- [x] **Custom Domain Wizard polish** — Print the DNS A-records to add (`*.example.dev → <ip>`) and a Caddyfile-with-DNS-01 sample for Cloudflare during `--reconfigure` on a non-fbi.com domain
+- [x] **Hot Reload** — `routes.yaml` is watched; edits reload atomically without a restart (typos keep the previous rules live)
 - [ ] **Metrics** — `/varz`-style counters: requests, 2xx/4xx/5xx, upstream-connect-failures, sessions-issued, sessions-refreshed (Prometheus format)
 - [ ] **Health Checks** — Active upstream liveness probes, not just per-request failure detection
 - [ ] **Cloudflare Tunnel / ngrok Integration** — Expose `*.your-domain` publicly without owning a static IP

@@ -141,7 +141,15 @@ ones were tried first) at debug level.
 
 ## Custom rules
 
-Add your own rules to `routes.yaml`. Some examples:
+Add your own rules to `routes.yaml`. Pass the file via `--routes <path>`
+or `FBI_PROXY_ROUTES=<path>`. The proxy **watches the file and reloads
+on change** — edit, save, and the next request uses the new rules
+without a restart. If your edit doesn't parse, the watcher logs a
+warning and keeps the previous rules live (so a typo doesn't take the
+proxy down). Hot reload only applies to `--routes`; the bundled
+default rules are compiled into the binary.
+
+Some examples:
 
 ### PR preview environments
 
