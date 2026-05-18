@@ -1,3 +1,9 @@
+# [1.13.0](https://github.com/snomiao/fbi-proxy/compare/v1.12.0...v1.13.0) (2026-05-18)
+
+### Features
+
+- **wizard,docs:** custom-domain DNS/TLS hints + README sync ([861c64c](https://github.com/snomiao/fbi-proxy/commit/861c64cbfa8c299e404674b6ae992244b04ad1dc))
+
 # [1.12.0](https://github.com/snomiao/fbi-proxy/compare/v1.11.0...v1.12.0) (2026-05-18)
 
 ### Features
