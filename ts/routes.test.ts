@@ -99,6 +99,28 @@ describe("validateRoute", () => {
     expect(validateRoute(good)).toEqual({ valid: true });
   });
 
+  it("accepts an https:// target prefix (R5)", () => {
+    expect(
+      validateRoute({
+        name: "passthrough",
+        match: "{anything:multi}",
+        target: "https://api.github.com:443",
+        headers: { Host: "api.github.com" },
+      }),
+    ).toEqual({ valid: true });
+  });
+
+  it("accepts an http:// target prefix (R5)", () => {
+    expect(
+      validateRoute({
+        name: "passthrough",
+        match: "{anything:multi}",
+        target: "http://example.com:80",
+        headers: { Host: "example.com" },
+      }),
+    ).toEqual({ valid: true });
+  });
+
   it("rejects empty name", () => {
     expect(validateRoute({ ...good, name: "" })).toEqual({
       valid: false,

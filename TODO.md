@@ -59,6 +59,20 @@ Architecture: separate Bun/TS service at `./lib/fbi-auth` (Hono + jose + oauth4w
 - [x] Audit log to `~/.config/fbi-proxy/audit.log` (JSONL, env `FBI_AUTH_AUDIT=0` to disable)
 - [ ] SQLite upgrade path (preserve `{issue, verify, revoke}` interface) — **deferred to its own PR**
 
+## Routing Engine
+
+### R5 — HTTPS upstream support ✅
+
+- [x] `hyper-rustls` connector with Mozilla webpki roots
+- [x] Parse `https://` / `http://` prefix from route target string
+- [x] HTTP forwarder uses parsed scheme for upstream URL
+- [x] WebSocket forwarder uses `wss://` when target scheme is `https`
+- [x] Unit tests (`parse_target_scheme`) + E2E test (api.github.com)
+- [x] Docs updated (`docs/routing.md` DNS-passthrough warning removed)
+
+Unlocks the full DNS-passthrough pattern: `github.com.{domain}` →
+`https://api.github.com:443` over TLS, with verified certs.
+
 ## Roadmap (from README — for reference)
 
 ### Next Up 🚧

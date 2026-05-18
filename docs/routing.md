@@ -265,10 +265,22 @@ Why this is useful:
 - **Sniffing / debugging.** All traffic goes through your fbi-proxy
   process, where you can log it or inject headers.
 
-⚠️ **HTTPS upstreams are not yet supported.** `target: "github.com:443"`
-will open a plaintext TCP connection to port 443 — the TLS handshake
-will fail. Today this pattern only works for `:80` or other plaintext
-upstreams. Phase R5 (HTTPS upstream support) is on the roadmap.
+**HTTPS upstreams (R5, shipped):** prefix the target with `https://` to
+make fbi-proxy speak TLS to the upstream. TLS verification uses the
+Mozilla webpki roots (same trust store as Firefox); no cert pinning,
+no skip-verify flag. Example:
+
+```yaml
+- name: github-passthrough
+  match: "github.com.{domain}"
+  target: "https://api.github.com:443"
+  headers:
+    Host: "api.github.com"
+```
+
+The `https://` prefix flips to `wss://` automatically for WebSocket
+upgrade requests. Targets without a scheme prefix (the default form,
+`host:port`) continue to use plain HTTP for backward compatibility.
 
 ⚠️ **Ordering matters.** Place `dns-passthrough` **after** more specific
 rules in `routes.yaml`, otherwise `{upstream:multi}` greedily eats

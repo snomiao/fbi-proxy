@@ -10,6 +10,7 @@ use hyper::{Method, Request, Response, StatusCode, Uri};
 use hyper_tungstenite::{HyperWebsocket, WebSocketStream};
 use hyper_util::client::legacy::{Client, connect::HttpConnector};
 use hyper_util::rt::TokioIo;
+use hyper_rustls::HttpsConnector;
 use log::{error, info};
 use regex::Regex;
 use std::convert::Infallible;
@@ -29,7 +30,7 @@ type BoxBody = http_body_util::combinators::BoxBody<Bytes, hyper::Error>;
 const BUNDLED_ROUTES_YAML: &str = include_str!("../routes.yaml");
 
 pub struct FBIProxy {
-    client: Client<HttpConnector, BoxBody>,
+    client: Client<HttpsConnector<HttpConnector>, BoxBody>,
     number_regex: Regex,
     domain_filter: Option<String>,
     compiled_routes: Vec<CompiledRoute>,
@@ -64,12 +65,21 @@ the landing page.
 */
 impl FBIProxy {
     pub fn new(domain_filter: Option<String>, compiled_routes: Vec<CompiledRoute>) -> Self {
-        let mut connector = HttpConnector::new();
-        // Set connection timeout to 5 seconds to avoid hanging on invalid hosts
-        connector.set_connect_timeout(Some(Duration::from_secs(3)));
+        let mut http = HttpConnector::new();
+        // Connect timeout — avoid hanging on unreachable hosts.
+        http.set_connect_timeout(Some(Duration::from_secs(3)));
+        // Allow http:// scheme through the HTTPS-enabled connector below.
+        http.enforce_http(false);
 
-        let client = Client::builder(hyper_util::rt::TokioExecutor::new())
-            .build(connector);
+        // HttpsConnector handles both http:// and https:// upstream URLs,
+        // using Mozilla's webpki root store for TLS validation.
+        let https = hyper_rustls::HttpsConnectorBuilder::new()
+            .with_webpki_roots()
+            .https_or_http()
+            .enable_http1()
+            .wrap_connector(http);
+
+        let client = Client::builder(hyper_util::rt::TokioExecutor::new()).build(https);
 
         Self {
             client,
@@ -170,14 +180,14 @@ npx fbi-proxy -d fbi.example.com  # Only accept *.fbi.example.com</pre>
     }
 
     /// Extract the hostname portion (before the first `:`) from a target
-    /// string like `"127.0.0.1:3000"`. This is the default `Host` header
-    /// value used when a matched rule doesn't specify an explicit
-    /// `headers.Host` rewrite — which preserves the original
-    /// `parse_host` semantics (numeric subdomain → Host: localhost).
+    /// string like `"127.0.0.1:3000"` or `"https://api.github.com:443"`.
+    /// This is the default `Host` header value used when a matched rule
+    /// doesn't specify an explicit `headers.Host` rewrite.
     fn host_from_target(target: &str) -> String {
-        match target.find(':') {
-            Some(i) => target[..i].to_string(),
-            None => target.to_string(),
+        let authority = parse_target_scheme(target).1;
+        match authority.find(':') {
+            Some(i) => authority[..i].to_string(),
+            None => authority.to_string(),
         }
     }
 
@@ -388,11 +398,16 @@ npx fbi-proxy -d fbi.example.com  # Only accept *.fbi.example.com</pre>
                 .await;
         }
 
-        // Build target URL for HTTP requests
+        // Build target URL for HTTP requests. parse_target_scheme handles
+        // an optional `http://` / `https://` prefix on the matched target
+        // so routes like `target: "https://api.github.com:443"` reach
+        // upstream over TLS via the HttpsConnector wired in FBIProxy::new.
         let uri = req.uri();
+        let (scheme, authority) = parse_target_scheme(&target_host);
         let target_url = format!(
-            "http://{}{}",
-            target_host,
+            "{}://{}{}",
+            scheme,
+            authority,
             uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/")
         );
         let target_uri: Uri = target_url.parse()?;
@@ -469,9 +484,12 @@ npx fbi-proxy -d fbi.example.com  # Only accept *.fbi.example.com</pre>
         _new_host: &str, // Currently not used for WebSocket connections, but kept for consistency
     ) -> Result<Response<BoxBody>, BoxError> {
         let uri = req.uri().clone();
+        let (scheme, authority) = parse_target_scheme(target_host);
+        let ws_scheme = if scheme == "https" { "wss" } else { "ws" };
         let ws_url = format!(
-            "ws://{}{}",
-            target_host,
+            "{}://{}{}",
+            ws_scheme,
+            authority,
             uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/")
         );
 
@@ -503,6 +521,21 @@ npx fbi-proxy -d fbi.example.com  # Only accept *.fbi.example.com</pre>
         let (parts, body) = response.into_parts();
         let boxed_body = body.map_err(|_: std::convert::Infallible| unreachable!()).boxed();
         Ok(Response::from_parts(parts, boxed_body))
+    }
+}
+
+/// Parse a route target into (scheme, authority). Supports an optional
+/// `http://` or `https://` prefix; defaults to `http` so existing
+/// `host:port`-style targets keep working unchanged. Used by both the
+/// HTTP forwarder (chooses URL scheme) and the WebSocket upgrade path
+/// (chooses `ws` vs `wss`).
+fn parse_target_scheme(target: &str) -> (&'static str, &str) {
+    if let Some(rest) = target.strip_prefix("https://") {
+        ("https", rest)
+    } else if let Some(rest) = target.strip_prefix("http://") {
+        ("http", rest)
+    } else {
+        ("http", target)
     }
 }
 
@@ -773,4 +806,33 @@ TRY RUN:
             error!("Failed to start proxy server: {}", e);
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_target_scheme;
+
+    #[test]
+    fn parse_target_scheme_defaults_to_http_with_no_prefix() {
+        assert_eq!(parse_target_scheme("localhost:3000"), ("http", "localhost:3000"));
+        assert_eq!(parse_target_scheme("api"), ("http", "api"));
+        assert_eq!(parse_target_scheme("127.0.0.1:80"), ("http", "127.0.0.1:80"));
+    }
+
+    #[test]
+    fn parse_target_scheme_strips_http_prefix() {
+        assert_eq!(parse_target_scheme("http://localhost:3000"), ("http", "localhost:3000"));
+    }
+
+    #[test]
+    fn parse_target_scheme_strips_https_prefix() {
+        assert_eq!(
+            parse_target_scheme("https://api.github.com:443"),
+            ("https", "api.github.com:443"),
+        );
+        assert_eq!(
+            parse_target_scheme("https://example.dev"),
+            ("https", "example.dev"),
+        );
+    }
 }
