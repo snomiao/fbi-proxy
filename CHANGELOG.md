@@ -1,3 +1,9 @@
+# [1.15.0](https://github.com/snomiao/fbi-proxy/compare/v1.14.0...v1.15.0) (2026-05-18)
+
+### Features
+
+- **metrics:** Prometheus counters on a 127.0.0.1 admin port ([c60b956](https://github.com/snomiao/fbi-proxy/commit/c60b9568aa593e3215eb740d9c5cb9e6217ecbcc))
+
 # [1.14.0](https://github.com/snomiao/fbi-proxy/compare/v1.13.0...v1.14.0) (2026-05-18)
 
 ### Features
