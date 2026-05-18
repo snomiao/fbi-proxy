@@ -73,6 +73,29 @@ Architecture: separate Bun/TS service at `./lib/fbi-auth` (Hono + jose + oauth4w
 Unlocks the full DNS-passthrough pattern: `github.com.{domain}` →
 `https://api.github.com:443` over TLS, with verified certs.
 
+## Rest of work (open — for next session)
+
+### Quick wins (≤ 30 min each)
+
+- [ ] **Verify snolab sign-in end-to-end in a real browser.** We shipped Phase 4 (Firebase web SDK + `/api/auth/firebase` + `/login` HTML) and confirmed unit tests pass, but never actually clicked "Sign in with Google" with a live account. Run `bunx fbi-proxy --with-auth --with-caddy --provider snolab --domain fbi.com`, open `https://sso.fbi.com/login` (the `*.fbi.com` wildcard handles DNS), click through, confirm `__fbi_sso` cookie lands and `/api/auth/verify` returns 200 on a subdomain. Save screenshots to `tmp/snolab-flow-{step}.png`.
+- [ ] **README polish.** Mark Phase 5 + R5 shipped in the Roadmap section, add snolab default IdP to "What you can do today", drop the "HTTPS upstreams coming soon" prose (now shipped). Reflect that `--with-auth --with-caddy --domain X --provider snolab` is one-command live on `.fbi.com`.
+- [ ] **Delete the unused GCP OAuth client** `864071329528-sp7fe1n68skhpdfnahcd5qjpjmg5qolq.apps.googleusercontent.com` from Google Cloud Console → APIs & Services → Credentials. Created during the Phase 4 architecture pivot before the Firebase decision; no code references it. Cleanup, not blocking.
+
+### Medium (~1–2 h)
+
+- [ ] **Custom Domain Wizard polish** — better DX for `--domain example.dev` first-run. Print required DNS records (`*.example.dev → <your-ip>`) and a Caddyfile snippet with DNS-01 sample (Cloudflare). Currently the wizard collects credentials but doesn't help the operator set up DNS.
+- [ ] **GitHub Pages docs site.** Repo has `.github/workflows/docs.yml` but it's been failing every run because Pages isn't enabled on the repo. Either enable Pages in repo settings (one toggle in the GitHub UI) and verify the workflow goes green, or delete the workflow file if docs.github.io isn't a goal.
+- [ ] **Hot reload `routes.yaml`** — watch the file with `notify` crate, recompile rules on change, swap them under an `RwLock`. Today routes only load at boot.
+
+### Big chunks (~half-day each, own PR)
+
+- [ ] **Built-in HTTPS via rustls + ACME.** Lets users skip Caddy entirely for simple setups. Architecture: terminate TLS in the Rust proxy using `rustls` + an ACME client like `instant-acme`. Trade-offs: more code in the binary, larger attack surface, but removes the Caddy dependency for the simple case. Worth it only if the "no Caddy at all" experience genuinely matters — Caddy already does this very well.
+- [ ] **Metrics endpoint** — `/varz` style: counters for requests-served, 2xx/4xx/5xx, upstream-connect-failures, sessions-issued, sessions-refreshed. Prometheus format. fbi-auth already has the audit log; this is the proxy-side equivalent.
+
+### Won't do (decided)
+
+- [x] ~~SQLite session storage~~ — JWT + sessionSecret rotation covers fbi-proxy's threat model. See `feedback_no_premature_db` memory + `lib/fbi-auth/docs/setup.md` → "Revoking sessions".
+
 ## Roadmap (from README — for reference)
 
 ### Next Up 🚧
