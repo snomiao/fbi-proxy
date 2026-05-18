@@ -16,15 +16,21 @@ export type FirebaseConfig = {
   authDomain?: string;
 };
 
+export type LocalConfig = {
+  email: string;
+  name?: string;
+};
+
 export type AuthConfig = {
   version: 1;
   domain: string;
   cookieDomain: string;
   ssoHost: string;
-  provider: "google" | "firebase" | "snolab";
+  provider: "google" | "firebase" | "snolab" | "local";
   clientId?: string;
   clientSecret?: string;
   firebase?: FirebaseConfig;
+  local?: LocalConfig;
   sessionSecret: string;
   allowlist: AllowlistRules;
 };
@@ -74,6 +80,7 @@ export function makeAuthConfig(input: {
   clientId?: string;
   clientSecret?: string;
   firebase?: FirebaseConfig;
+  local?: LocalConfig;
   allowlist?: AllowlistRules;
 }): AuthConfig {
   const domain = stripLeadingDot(input.domain);
@@ -86,6 +93,7 @@ export function makeAuthConfig(input: {
     clientId: input.clientId,
     clientSecret: input.clientSecret,
     firebase: input.firebase,
+    local: input.local,
     sessionSecret: newSessionSecret(),
     allowlist: input.allowlist ?? { anySignedIn: true },
   };
@@ -116,6 +124,11 @@ function validate(c: AuthConfig): void {
     if (!c.firebase?.projectId)
       throw new Error(
         "auth config: 'firebase.projectId' is required when provider is 'firebase'",
+      );
+  } else if (c.provider === "local") {
+    if (!c.local?.email)
+      throw new Error(
+        "auth config: 'local.email' is required when provider is 'local'",
       );
   }
 

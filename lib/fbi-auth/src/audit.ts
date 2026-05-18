@@ -18,6 +18,7 @@ export type AuditEvent =
     }
   | { type: "signin.fail.oauth"; provider: string; reason: string }
   | { type: "signin.fail.firebase"; reason: string }
+  | { type: "signin.fail.local"; username?: string; reason: string }
   | { type: "verify.fail"; reason: "missing" | "invalid" | "expired" }
   | {
       type: "session.refresh";

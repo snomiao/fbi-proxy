@@ -10,15 +10,21 @@ export type FirebaseSubConfig = {
   authDomain?: string;
 };
 
+export type LocalSubConfig = {
+  email: string;
+  name?: string;
+};
+
 export type AuthConfigShape = {
   version: 1;
   domain: string;
   cookieDomain: string;
   ssoHost: string;
-  provider: "google" | "firebase" | "snolab";
+  provider: "google" | "firebase" | "snolab" | "local";
   clientId?: string;
   clientSecret?: string;
   firebase?: FirebaseSubConfig;
+  local?: LocalSubConfig;
   sessionSecret: string;
   allowlist: {
     emails?: string[];
@@ -63,10 +69,16 @@ export function configFromEnv(domain: string): AuthConfigShape | null {
     (process.env.FBI_AUTH_PROVIDER as AuthConfigShape["provider"]) ?? "google";
   const clientId = process.env.FBI_AUTH_CLIENT_ID;
   const firebaseProjectId = process.env.FBI_AUTH_FIREBASE_PROJECT_ID;
+  const localUser = process.env.FBI_AUTH_LOCAL_USER;
 
   if (provider === "firebase") {
     if (!firebaseProjectId) return null;
+  } else if (provider === "snolab") {
+    // snolab uses baked-in defaults; nothing required beyond the provider name
+  } else if (provider === "local") {
+    if (!localUser) return null;
   } else {
+    // google (default)
     if (!clientId) return null;
   }
 
@@ -84,6 +96,12 @@ export function configFromEnv(domain: string): AuthConfigShape | null {
           projectId: firebaseProjectId,
           apiKey: process.env.FBI_AUTH_FIREBASE_API_KEY,
           authDomain: process.env.FBI_AUTH_FIREBASE_AUTH_DOMAIN,
+        }
+      : undefined,
+    local: localUser
+      ? {
+          email: localUser,
+          name: process.env.FBI_AUTH_LOCAL_NAME,
         }
       : undefined,
     sessionSecret:

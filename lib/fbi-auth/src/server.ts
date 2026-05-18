@@ -4,6 +4,7 @@ import { makeSession } from "./session";
 import { makeStateStore } from "./state";
 import { makeGoogleProvider } from "./providers/google";
 import { makeFirebaseProvider } from "./providers/firebase";
+import { makeLocalProviderFromPassword } from "./providers/local";
 import {
   SNOLAB_FIREBASE_CONFIG,
   isSnolabFirebaseConfigured,
@@ -18,6 +19,7 @@ import { logoutRoute } from "./routes/logout";
 import { meRoute } from "./routes/me";
 import { firebaseRoute } from "./routes/firebase";
 import { firebaseLoginRoute } from "./routes/firebaseLogin";
+import { localLoginRoute } from "./routes/localLogin";
 import { makeAuditLogger, type AuditLogger } from "./audit";
 
 export async function buildApp(
@@ -93,6 +95,26 @@ export async function buildApp(
         }),
       );
     }
+  } else if (config.provider === "local") {
+    if (!config.local?.email)
+      throw new Error("provider 'local' requires local.email");
+    const password = process.env.FBI_AUTH_LOCAL_PASSWORD;
+    if (!password)
+      throw new Error(
+        "provider 'local' requires FBI_AUTH_LOCAL_PASSWORD env var (the password is hashed in-memory each boot; nothing is persisted to disk).",
+      );
+    console.warn(
+      "[fbi-auth] provider: local — username/password has no MFA, account lockout, or rate limiting. Use for local dev / trusted intranet only.",
+    );
+    const provider = await makeLocalProviderFromPassword({
+      email: config.local.email,
+      name: config.local.name,
+      password,
+    });
+    app.route(
+      "/",
+      localLoginRoute({ config, provider, session, ssoOrigin, audit }),
+    );
   } else {
     throw new Error(`Unknown provider: ${(config as AuthConfig).provider}`);
   }
