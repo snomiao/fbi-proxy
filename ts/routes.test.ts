@@ -107,9 +107,9 @@ describe("validateRoute", () => {
   });
 
   it("rejects unbalanced braces in match", () => {
-    expect(validateRoute({ ...good, match: "{port" })).toMatchObject({
+    expect(validateRoute({ ...good, match: "{port" })).toEqual({
       valid: false,
-      reason: /unbalanced braces in `match`/,
+      reason: "unbalanced braces in `match`",
     });
   });
 

@@ -23,7 +23,13 @@ describe("FBI Proxy Core Functionality", () => {
     headers?: Record<string, string>;
     body?: string;
   }) {
-    const { host, path: requestPath, method = "GET", headers = {}, body } = options;
+    const {
+      host,
+      path: requestPath,
+      method = "GET",
+      headers = {},
+      body,
+    } = options;
     const url = `http://127.0.0.1:${proxyPort}${requestPath}`;
 
     const response = await fetch(url, {
@@ -80,14 +86,18 @@ describe("FBI Proxy Core Functionality", () => {
     const projectRoot = path.resolve(__dirname, "..");
     const binaryPath = path.join(projectRoot, "target/release/fbi-proxy");
 
-    proxyProcess = spawn(binaryPath, ["-p", proxyPort.toString(), "-h", "127.0.0.1"], {
-      stdio: "pipe",
-      env: {
-        ...process.env,
-        RUST_LOG: "error",
-        FBI_PROXY_DOMAIN: "",
+    proxyProcess = spawn(
+      binaryPath,
+      ["-p", proxyPort.toString(), "-h", "127.0.0.1"],
+      {
+        stdio: "pipe",
+        env: {
+          ...process.env,
+          RUST_LOG: "error",
+          FBI_PROXY_DOMAIN: "",
+        },
       },
-    });
+    );
 
     // Wait for proxy to start
     await new Promise((resolve, reject) => {
@@ -272,8 +282,12 @@ describe("FBI Proxy Core Functionality", () => {
 
   describe("Error Handling", () => {
     it("should return 502 for unreachable hosts", async () => {
+      // Allocate a port and release it so nothing is listening when the
+      // proxy tries to connect. Hardcoding a port (e.g. 9999) is flaky —
+      // anything on the host might claim it.
+      const unreachablePort = await getPort();
       const response = await makeRequest({
-        host: "9999", // Assuming nothing runs on port 9999
+        host: unreachablePort.toString(),
         path: "/test",
       });
 
