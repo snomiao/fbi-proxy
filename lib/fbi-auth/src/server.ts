@@ -5,8 +5,8 @@ import { makeStateStore } from "./state";
 import { makeGoogleProvider } from "./providers/google";
 import { makeFirebaseProvider } from "./providers/firebase";
 import {
-  SNOLAB_GOOGLE_CLIENT_ID,
-  isSnolabGoogleConfigured,
+  SNOLAB_FIREBASE_CONFIG,
+  isSnolabFirebaseConfigured,
   snolabSupportsDomain,
   snolabUnavailableMessage,
 } from "./snolabDefaults";
@@ -17,6 +17,7 @@ import { callbackRoute } from "./routes/callback";
 import { logoutRoute } from "./routes/logout";
 import { meRoute } from "./routes/me";
 import { firebaseRoute } from "./routes/firebase";
+import { firebaseLoginRoute } from "./routes/firebaseLogin";
 
 export async function buildApp(configOverride?: AuthConfig) {
   const config = configOverride ?? (await loadAuthConfig());
@@ -46,18 +47,22 @@ export async function buildApp(configOverride?: AuthConfig) {
     app.route("/", loginRoute({ provider, states, ssoOrigin }));
     app.route("/", callbackRoute({ config, provider, session, states }));
   } else if (config.provider === "snolab") {
-    if (!isSnolabGoogleConfigured() || !snolabSupportsDomain(config.domain)) {
+    if (!isSnolabFirebaseConfigured() || !snolabSupportsDomain(config.domain)) {
       throw new Error(snolabUnavailableMessage(config.domain));
     }
-    // PKCE-only flow: clientSecret intentionally undefined so
-    // makeGoogleProvider uses oauth.None() instead of ClientSecretPost.
-    const provider = await makeGoogleProvider({
-      clientId: SNOLAB_GOOGLE_CLIENT_ID!,
-      clientSecret: undefined,
-      redirectUri,
+    const firebaseConfig = SNOLAB_FIREBASE_CONFIG!;
+    const provider = makeFirebaseProvider({
+      projectId: firebaseConfig.projectId,
     });
-    app.route("/", loginRoute({ provider, states, ssoOrigin }));
-    app.route("/", callbackRoute({ config, provider, session, states }));
+    app.route("/", firebaseRoute({ config, provider, session }));
+    app.route(
+      "/",
+      firebaseLoginRoute({
+        ssoOrigin,
+        domain: config.domain,
+        firebaseConfig,
+      }),
+    );
   } else if (config.provider === "firebase") {
     if (!config.firebase?.projectId)
       throw new Error("provider 'firebase' requires firebase.projectId");
@@ -65,6 +70,20 @@ export async function buildApp(configOverride?: AuthConfig) {
       projectId: config.firebase.projectId,
     });
     app.route("/", firebaseRoute({ config, provider, session }));
+    if (config.firebase.apiKey && config.firebase.authDomain) {
+      app.route(
+        "/",
+        firebaseLoginRoute({
+          ssoOrigin,
+          domain: config.domain,
+          firebaseConfig: {
+            apiKey: config.firebase.apiKey,
+            authDomain: config.firebase.authDomain,
+            projectId: config.firebase.projectId,
+          },
+        }),
+      );
+    }
   } else {
     throw new Error(`Unknown provider: ${(config as AuthConfig).provider}`);
   }

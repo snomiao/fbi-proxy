@@ -614,7 +614,6 @@ describe("setup wizard", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 import {
-  isSnolabGoogleConfigured,
   isSnolabFirebaseConfigured,
   snolabSupportsDomain,
   snolabUnavailableMessage,
@@ -633,38 +632,61 @@ describe("snolab defaults", () => {
   });
 
   it("reports unconfigured / unsupported with actionable error text", () => {
-    // Current build: client ID hasn't been baked in yet. Either branch
-    // (unconfigured OR unsupported-domain) returns a non-empty message
-    // that points the user at --provider google.
-    if (!isSnolabGoogleConfigured()) {
+    if (!isSnolabFirebaseConfigured()) {
       const msg = snolabUnavailableMessage("fbi.com");
       expect(msg).toContain("snolab default IdP isn't published yet");
       expect(msg).toContain("--reconfigure");
     } else {
-      // If/when SNOLAB_GOOGLE_CLIENT_ID is published, the configured
-      // path returns "" for supported domains and an unsupported-domain
-      // message for everything else.
+      // Published path: supported domain → "", unsupported → message.
       expect(snolabUnavailableMessage("fbi.com")).toBe("");
       expect(snolabUnavailableMessage("nope.example")).toContain(
         "isn't supported",
       );
     }
   });
-
-  it("firebase isn't required to be configured", () => {
-    // Firebase defaults are optional — the boolean just reports state.
-    expect(typeof isSnolabFirebaseConfigured()).toBe("boolean");
-  });
 });
 
 describe("server / snolab branch", () => {
-  it("buildApp throws a snolabUnavailable error when not configured", async () => {
-    if (isSnolabGoogleConfigured()) {
-      // Once the snolab project owner publishes values, this test will
-      // be a no-op — the unavailable path can only be exercised in the
-      // unpublished build.
-      return;
-    }
+  it("buildApp succeeds for supported domain when configured", async () => {
+    if (!isSnolabFirebaseConfigured()) return; // unpublished build
+    const { buildApp } = await import("../src/server");
+    const cfg: AuthConfig = {
+      ...fakeConfig(),
+      domain: "fbi.com",
+      cookieDomain: ".fbi.com",
+      ssoHost: "sso.fbi.com",
+      provider: "snolab",
+      clientId: undefined,
+      clientSecret: undefined,
+    };
+    const { app } = await buildApp(cfg);
+    // /login should serve the Firebase Web SDK page
+    const res = await app.request("/login", { method: "GET" });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type") ?? "").toContain("text/html");
+    const html = await res.text();
+    expect(html).toContain("Sign in with Google");
+    expect(html).toContain("firebase-app.js");
+    expect(html).toContain("snolab"); // projectId baked into config
+  });
+
+  it("buildApp rejects unsupported domain when configured", async () => {
+    if (!isSnolabFirebaseConfigured()) return;
+    const { buildApp } = await import("../src/server");
+    const cfg: AuthConfig = {
+      ...fakeConfig(),
+      domain: "nope.example",
+      cookieDomain: ".nope.example",
+      ssoHost: "sso.nope.example",
+      provider: "snolab",
+      clientId: undefined,
+      clientSecret: undefined,
+    };
+    await expect(buildApp(cfg)).rejects.toThrow(/isn't supported/);
+  });
+
+  it("buildApp throws snolabUnavailable when not configured", async () => {
+    if (isSnolabFirebaseConfigured()) return; // published build skips this
     const { buildApp } = await import("../src/server");
     const cfg: AuthConfig = {
       ...fakeConfig(),

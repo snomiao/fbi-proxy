@@ -44,12 +44,13 @@ Architecture: separate Bun/TS service at `./lib/fbi-auth` (Hono + jose + oauth4w
 - [ ] Document `.fbi.com` CA caveat: `tls internal` only trusts on the Caddy host — not shareable
 - [ ] Document story (README ✅ added) — pointer to it from `docs/auth.md`
 
-### Phase 4 — snolab default IdP
+### Phase 4 — snolab default IdP ✅
 
-- [ ] Bake snolab Google client ID (Web, PKCE — no secret) into `snolabDefaults.ts`
-- [ ] PKCE flow for `provider: snolab`
-- [ ] Bake snolab Firebase web config (apiKey/authDomain/projectId — all public)
-- [ ] Doc: snolab default only works for `.fbi.com`; custom domains need BYO
+- [x] Architecture pivot from raw OAuth/PKCE to Firebase (Google requires client_secret on Web Application clients — PKCE alone is insufficient)
+- [x] Bake snolab Firebase web config (apiKey/authDomain/projectId — all public per Firebase docs) into `snolabDefaults.ts`
+- [x] `firebaseLoginRoute` — serves `/login` HTML with Firebase Web SDK + Google sign-in
+- [x] Wire `--provider snolab` → Firebase flow in `server.ts`
+- [x] Doc: snolab default only works for `.fbi.com`; custom domains need BYO
 
 ### Phase 5 — Polish
 

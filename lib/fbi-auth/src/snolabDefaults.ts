@@ -1,49 +1,48 @@
 /**
  * Snolab default IdP — baked-in identity-provider credentials that let
- * `provider: snolab` work with zero configuration on supported domains
- * (default `.fbi.com`).
+ * `--provider snolab` work with zero configuration on supported domains
+ * (default: `.fbi.com`).
  *
  * # How it works
  *
- * The snolab Google Cloud project owns the OAuth client whose ID is
- * baked in below. It's a **public client** (PKCE flow, no client_secret
- * — see RFC 7636), so shipping the client_id in code is safe. The
- * snolab project also has every domain in `SNOLAB_SUPPORTED_DOMAINS`
- * pre-registered as an Authorized JS Origin and Redirect URI, so
- * sign-in just works for those domains.
+ * Snolab uses **Firebase Auth** rather than raw OAuth, so every credential
+ * baked in here is public by design:
+ *   - `apiKey`, `authDomain`, `projectId` are public per Firebase's
+ *     official guidance: https://firebase.google.com/docs/projects/api-keys
+ *   - The actual Google OAuth client is auto-managed inside the snolab
+ *     Firebase project and never leaves Google's servers, so no
+ *     `client_secret` is ever distributed.
  *
- * # Adding values
+ * # Flow
  *
- * When the snolab project owner publishes credentials, only this file
+ *   1. User opens `https://sso.<domain>/login`
+ *   2. fbi-auth serves an HTML page that loads the Firebase Web SDK
+ *      configured with the values below.
+ *   3. User clicks "Sign in with Google"; Firebase pops up its hosted
+ *      Google sign-in. (Firebase's own OAuth client handles the
+ *      Google-side flow — we never see a client secret.)
+ *   4. Firebase returns a signed ID token to the browser.
+ *   5. The browser POSTs the ID token to `/api/auth/firebase`, which
+ *      verifies it via Google's JWKS, checks the allowlist, and issues
+ *      the `__fbi_sso` cookie.
+ *
+ * # Publishing values
+ *
+ * When the snolab project owner updates Firebase / GCP, only this file
  * needs to change. The rest of the auth code (server.ts, wizard,
  * validator) is already wired to use whatever lands here.
  *
- * To publish:
- *   1. In Google Cloud Console, create an OAuth 2.0 Client ID of type
- *      "Web application" inside the snolab project. Mark it as a
- *      public client (no client secret).
- *   2. Add `https://sso.<domain>` to Authorized JavaScript Origins and
- *      `https://sso.<domain>/callback` to Authorized Redirect URIs for
- *      every domain you want supported.
- *   3. Replace `SNOLAB_GOOGLE_CLIENT_ID` below with the issued client ID.
- *   4. Optionally set `SNOLAB_FIREBASE_CONFIG` with the snolab Firebase
- *      project's web app config (apiKey / authDomain / projectId are
- *      all public per Firebase's docs).
- *   5. Update `SNOLAB_SUPPORTED_DOMAINS` to match the authorized
- *      origins you registered.
- *
- * # Why a placeholder ships in v1
- *
- * The snolab GCP project doesn't exist publicly at the time of this
- * commit. Users who pick `--provider snolab` get a clear error pointing
- * them at `--provider google` with their own client ID. When values are
- * published here, the same code paths light up automatically — no other
- * file changes needed.
+ * To (re)publish:
+ *   1. <https://console.firebase.google.com> → create or open the snolab
+ *      project, register a Web app, and copy the `apiKey`, `authDomain`,
+ *      `projectId` from the snippet.
+ *   2. Authentication → Sign-in method → enable Google.
+ *   3. Authentication → Settings → Authorized domains → add every
+ *      apex domain you want supported (e.g. `fbi.com` — covers
+ *      `sso.fbi.com` automatically).
+ *   4. Paste the three values into `SNOLAB_FIREBASE_CONFIG` below.
+ *   5. Update `SNOLAB_SUPPORTED_DOMAINS` to list every authorized apex.
  */
-
-/** Public Google OAuth Web client ID for the snolab project. */
-export const SNOLAB_GOOGLE_CLIENT_ID: string | undefined = undefined;
-//                                  ^ e.g. "1234567890-xxxxxxxx.apps.googleusercontent.com"
 
 /** Public Firebase web-app config for the snolab Firebase project. */
 export const SNOLAB_FIREBASE_CONFIG:
@@ -52,23 +51,19 @@ export const SNOLAB_FIREBASE_CONFIG:
       apiKey: string;
       authDomain: string;
     }
-  | undefined = undefined;
+  | undefined = {
+  projectId: "snolab",
+  apiKey: "AIzaSyDGCb0r0gatTuDFXrVL_QoN0DZOSp2Aw2s",
+  authDomain: "snolab.firebaseapp.com",
+};
 
 /**
- * Domains whose `sso.<domain>` is registered as an authorized origin /
- * redirect URI in the snolab Google OAuth client. Sign-in for any
- * domain NOT in this list will be rejected at the Google consent screen,
- * so we surface a friendlier error pre-flight instead of letting the
- * user hit Google's error page.
+ * Apex domains whose `sso.<domain>` is added to the snolab Firebase
+ * project's Authorized domains list. Sign-in attempts on any other
+ * domain will be rejected by Firebase, so we surface a friendlier
+ * error pre-flight instead of letting the user hit Firebase's error.
  */
 export const SNOLAB_SUPPORTED_DOMAINS: readonly string[] = ["fbi.com"];
-
-export function isSnolabGoogleConfigured(): boolean {
-  return (
-    typeof SNOLAB_GOOGLE_CLIENT_ID === "string" &&
-    SNOLAB_GOOGLE_CLIENT_ID.length > 0
-  );
-}
 
 export function isSnolabFirebaseConfigured(): boolean {
   return SNOLAB_FIREBASE_CONFIG !== undefined;
@@ -82,9 +77,10 @@ export function snolabSupportsDomain(domain: string): boolean {
 /**
  * Human-readable message explaining why snolab can't serve a given
  * config. Use when validation fails so the user gets a path forward.
+ * Returns "" when snolab IS able to serve the request.
  */
 export function snolabUnavailableMessage(domain: string): string {
-  if (!isSnolabGoogleConfigured()) {
+  if (!isSnolabFirebaseConfigured()) {
     return [
       "",
       "[fbi-auth] provider: snolab — the snolab default IdP isn't published yet.",
@@ -92,8 +88,8 @@ export function snolabUnavailableMessage(domain: string): string {
       "Snolab is a planned zero-config sign-in path for users on supported domains",
       "(currently: " +
         SNOLAB_SUPPORTED_DOMAINS.join(", ") +
-        "). The Google OAuth",
-      "client ID hasn't been baked in to this build.",
+        "). The Firebase web",
+      "config hasn't been baked in to this build.",
       "",
       "What to do instead:",
       "  - Use Google with your own OAuth client (free, ~2 min in Google Cloud Console):",
