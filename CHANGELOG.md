@@ -1,3 +1,17 @@
+# [1.10.0](https://github.com/snomiao/fbi-proxy/compare/v1.9.1...v1.10.0) (2026-05-18)
+
+### Features
+
+- **auth:** add fbi-auth OAuth2 gateway (Phase 1 MVP — Google) ([513f358](https://github.com/snomiao/fbi-proxy/commit/513f358efb445c5dfd65f43da9e86da4e47daf0e))
+- **auth:** Phase 2 — Firebase provider + setup wizard ([638bf8c](https://github.com/snomiao/fbi-proxy/commit/638bf8c4028bac861560ad034bc74c5a380ca621))
+- **auth:** Phase 3 — --with-caddy automation ([0fd8dad](https://github.com/snomiao/fbi-proxy/commit/0fd8dad61c4abcf8ab1d4a49c39a5acf532ea02f))
+- **auth:** Phase 3.1 — auto-download Caddy from GitHub Releases ([d9dccb8](https://github.com/snomiao/fbi-proxy/commit/d9dccb82ce9be4455943d7bf708d3255a03526eb))
+- **auth:** Phase 4 — snolab default IdP infrastructure ([c58b2b0](https://github.com/snomiao/fbi-proxy/commit/c58b2b0a2b2a1da4e7dd41b6e1f0dcb77c82514d))
+- **auth:** Phase 4 — snolab default IdP via Firebase (working end-to-end) ([f3eb56e](https://github.com/snomiao/fbi-proxy/commit/f3eb56e9ee6d7c71217a724982233bb0e03819d0))
+- **routing:** add {name:multi} placeholder + Docker/k8s/DNS-passthrough recipes ([3968803](https://github.com/snomiao/fbi-proxy/commit/3968803d6ed2eb8a7d508fb9dcbd3f2bc1fd802b))
+- **routing:** R3 — wire engine into the live Rust binary ([09ed817](https://github.com/snomiao/fbi-proxy/commit/09ed81716f8831ce2415df9d7dcade48d851b6d7))
+- **routing:** rule-based placeholder matcher engine (R1+R2) ([3514caf](https://github.com/snomiao/fbi-proxy/commit/3514cafb127d33dd0a72424bdbe6433ff45fd8ce))
+
 ## [1.9.1](https://github.com/snomiao/fbi-proxy/compare/v1.9.0...v1.9.1) (2026-03-22)
 
 ### Bug Fixes
