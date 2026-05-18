@@ -1,3 +1,9 @@
+# [1.12.0](https://github.com/snomiao/fbi-proxy/compare/v1.11.0...v1.12.0) (2026-05-18)
+
+### Features
+
+- **routing:** R5 — HTTPS upstream support via hyper-rustls ([b94b9f7](https://github.com/snomiao/fbi-proxy/commit/b94b9f7c35f8f65b4599ad2813a703e3c1bbe1ce))
+
 # [1.11.0](https://github.com/snomiao/fbi-proxy/compare/v1.10.1...v1.11.0) (2026-05-18)
 
 ### Features
