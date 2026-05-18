@@ -18,8 +18,12 @@ import { logoutRoute } from "./routes/logout";
 import { meRoute } from "./routes/me";
 import { firebaseRoute } from "./routes/firebase";
 import { firebaseLoginRoute } from "./routes/firebaseLogin";
+import { makeAuditLogger, type AuditLogger } from "./audit";
 
-export async function buildApp(configOverride?: AuthConfig) {
+export async function buildApp(
+  configOverride?: AuthConfig,
+  options?: { audit?: AuditLogger },
+) {
   const config = configOverride ?? (await loadAuthConfig());
   const ssoOrigin = `https://${config.ssoHost}`;
   const redirectUri = `${ssoOrigin}/callback`;
@@ -27,13 +31,18 @@ export async function buildApp(configOverride?: AuthConfig) {
   const session = makeSession({
     secret: config.sessionSecret,
     audience: config.domain,
+    ttlSeconds: parsePositiveInt(process.env.FBI_AUTH_SESSION_TTL_SECONDS),
+    refreshThresholdSeconds: parsePositiveInt(
+      process.env.FBI_AUTH_REFRESH_THRESHOLD_SECONDS,
+    ),
   });
   const states = makeStateStore();
+  const audit = options?.audit ?? makeAuditLogger();
 
   const app = new Hono();
   app.route("/", healthRoute());
-  app.route("/", verifyRoute({ config, session }));
-  app.route("/", logoutRoute({ config }));
+  app.route("/", verifyRoute({ config, session, audit }));
+  app.route("/", logoutRoute({ config, session, audit }));
   app.route("/", meRoute({ session }));
 
   if (config.provider === "google") {
@@ -45,7 +54,7 @@ export async function buildApp(configOverride?: AuthConfig) {
       redirectUri,
     });
     app.route("/", loginRoute({ provider, states, ssoOrigin }));
-    app.route("/", callbackRoute({ config, provider, session, states }));
+    app.route("/", callbackRoute({ config, provider, session, states, audit }));
   } else if (config.provider === "snolab") {
     if (!isSnolabFirebaseConfigured() || !snolabSupportsDomain(config.domain)) {
       throw new Error(snolabUnavailableMessage(config.domain));
@@ -54,7 +63,7 @@ export async function buildApp(configOverride?: AuthConfig) {
     const provider = makeFirebaseProvider({
       projectId: firebaseConfig.projectId,
     });
-    app.route("/", firebaseRoute({ config, provider, session }));
+    app.route("/", firebaseRoute({ config, provider, session, audit }));
     app.route(
       "/",
       firebaseLoginRoute({
@@ -69,7 +78,7 @@ export async function buildApp(configOverride?: AuthConfig) {
     const provider = makeFirebaseProvider({
       projectId: config.firebase.projectId,
     });
-    app.route("/", firebaseRoute({ config, provider, session }));
+    app.route("/", firebaseRoute({ config, provider, session, audit }));
     if (config.firebase.apiKey && config.firebase.authDomain) {
       app.route(
         "/",
@@ -91,6 +100,12 @@ export async function buildApp(configOverride?: AuthConfig) {
   app.get("/", (c) => c.redirect("/api/auth/me", 302));
 
   return { app, config, ssoOrigin };
+}
+
+function parsePositiveInt(s: string | undefined): number | undefined {
+  if (!s) return undefined;
+  const n = Number.parseInt(s, 10);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
 }
 
 if (import.meta.main) {

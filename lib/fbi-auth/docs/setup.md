@@ -96,20 +96,24 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 
 If `auth.json` doesn't exist when you run `bunx fbi-proxy --with-auth` (and you're in a non-TTY environment), the CLI checks for these env vars and writes the config file for you:
 
-| Env var                         | Purpose                                   | Default                    |
-| ------------------------------- | ----------------------------------------- | -------------------------- |
-| `FBI_AUTH_PROVIDER`             | `google` / `firebase` / `snolab`          | `google`                   |
-| `FBI_AUTH_CLIENT_ID`            | Google OAuth Client ID                    | required if google         |
-| `FBI_AUTH_CLIENT_SECRET`        | Google OAuth Client Secret                | required if google         |
-| `FBI_AUTH_FIREBASE_PROJECT_ID`  | Firebase Project ID                       | required if firebase       |
-| `FBI_AUTH_FIREBASE_API_KEY`     | Firebase Web API Key (used by client SDK) | unset                      |
-| `FBI_AUTH_FIREBASE_AUTH_DOMAIN` | Firebase Auth Domain                      | unset                      |
-| `FBI_AUTH_SESSION_SECRET`       | 32+ char secret for JWT signing           | auto-generated             |
-| `FBI_AUTH_ALLOW_EMAILS`         | Comma-separated allowlist                 | unset                      |
-| `FBI_AUTH_ALLOW_DOMAINS`        | Comma-separated email-domain allowlist    | unset                      |
-| `FBI_AUTH_ALLOW_ANY`            | `true` to allow any signed-in user        | `true` if nothing else set |
-| `FBI_AUTH_PORT`                 | Port for fbi-auth to listen on            | auto                       |
-| `FBI_AUTH_CONFIG_PATH`          | Override config path                      | XDG default                |
+| Env var                              | Purpose                                   | Default                         |
+| ------------------------------------ | ----------------------------------------- | ------------------------------- |
+| `FBI_AUTH_PROVIDER`                  | `google` / `firebase` / `snolab`          | `google`                        |
+| `FBI_AUTH_CLIENT_ID`                 | Google OAuth Client ID                    | required if google              |
+| `FBI_AUTH_CLIENT_SECRET`             | Google OAuth Client Secret                | required if google              |
+| `FBI_AUTH_FIREBASE_PROJECT_ID`       | Firebase Project ID                       | required if firebase            |
+| `FBI_AUTH_FIREBASE_API_KEY`          | Firebase Web API Key (used by client SDK) | unset                           |
+| `FBI_AUTH_FIREBASE_AUTH_DOMAIN`      | Firebase Auth Domain                      | unset                           |
+| `FBI_AUTH_SESSION_SECRET`            | 32+ char secret for JWT signing           | auto-generated                  |
+| `FBI_AUTH_ALLOW_EMAILS`              | Comma-separated allowlist                 | unset                           |
+| `FBI_AUTH_ALLOW_DOMAINS`             | Comma-separated email-domain allowlist    | unset                           |
+| `FBI_AUTH_ALLOW_ANY`                 | `true` to allow any signed-in user        | `true` if nothing else set      |
+| `FBI_AUTH_PORT`                      | Port for fbi-auth to listen on            | auto                            |
+| `FBI_AUTH_CONFIG_PATH`               | Override config path                      | XDG default                     |
+| `FBI_AUTH_SESSION_TTL_SECONDS`       | Cookie lifetime                           | `604800` (7 days)               |
+| `FBI_AUTH_REFRESH_THRESHOLD_SECONDS` | Sliding-window refresh trigger window     | `86400` (24 hours)              |
+| `FBI_AUTH_AUDIT`                     | `0` / `false` to disable audit log        | enabled                         |
+| `FBI_AUTH_AUDIT_PATH`                | Override audit log path                   | `~/.config/fbi-proxy/audit.log` |
 
 ### 4. Run with `--with-auth`
 

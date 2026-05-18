@@ -52,12 +52,12 @@ Architecture: separate Bun/TS service at `./lib/fbi-auth` (Hono + jose + oauth4w
 - [x] Wire `--provider snolab` → Firebase flow in `server.ts`
 - [x] Doc: snolab default only works for `.fbi.com`; custom domains need BYO
 
-### Phase 5 — Polish
+### Phase 5 — Polish (mostly shipped)
 
-- [ ] Sliding-window refresh (already in Phase 1 design — verify behavior)
-- [ ] `--reconfigure` flag (wizard re-entry)
-- [ ] SQLite upgrade path (preserve `{issue, verify, revoke}` interface)
-- [ ] Audit log to `~/.config/fbi-proxy/audit.log`
+- [x] Sliding-window refresh — configurable via `FBI_AUTH_REFRESH_THRESHOLD_SECONDS` (default 24h)
+- [x] `--reconfigure` polish — change detection, "no changes — skipping write" path, defaults from existing
+- [x] Audit log to `~/.config/fbi-proxy/audit.log` (JSONL, env `FBI_AUTH_AUDIT=0` to disable)
+- [ ] SQLite upgrade path (preserve `{issue, verify, revoke}` interface) — **deferred to its own PR**
 
 ## Roadmap (from README — for reference)
 

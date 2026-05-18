@@ -12,6 +12,7 @@ import {
   helpfulSetupMessage,
   readConfigOrNull,
   writeConfig,
+  type AuthConfigShape,
 } from "./auth/authConfig";
 import { spawnFbiAuth, type FbiAuthHandle } from "./auth/spawnFbiAuth";
 import { isTty, readlinePrompter, runWizard } from "./auth/setupWizard";
@@ -149,10 +150,30 @@ async function startFbiAuth(opts: {
       );
       return undefined;
     }
+    if (cfg) {
+      console.log(
+        `[fbi-auth] --reconfigure: existing config at ${configPath} will be replaced.`,
+      );
+      console.log(
+        `[fbi-auth] previous values used as defaults; press Enter to keep each.`,
+      );
+    }
     const prompter = readlinePrompter();
-    cfg = await runWizard(prompter, { domain: opts.domain, existing: cfg });
+    const next = await runWizard(prompter, {
+      domain: opts.domain,
+      existing: cfg,
+    });
+    if (cfg) {
+      const changed = changedFields(cfg, next);
+      if (changed.length === 0) {
+        console.log("[fbi-auth] no changes — skipping write.");
+        return undefined;
+      }
+      console.log(`[fbi-auth] changed fields: ${changed.join(", ")}`);
+    }
     console.log(`[fbi-auth] writing config from wizard → ${configPath}`);
-    await writeConfig(cfg, configPath);
+    await writeConfig(next, configPath);
+    cfg = next;
   } else if (!cfg) {
     if (isTty()) {
       const prompter = readlinePrompter();
@@ -240,4 +261,22 @@ async function startCaddy(opts: {
     console.log(`[caddy] PID ${handle.pid}`);
   }
   return handle;
+}
+
+function changedFields(prev: AuthConfigShape, next: AuthConfigShape): string[] {
+  const fields: (keyof AuthConfigShape)[] = [
+    "domain",
+    "cookieDomain",
+    "ssoHost",
+    "provider",
+    "clientId",
+    "clientSecret",
+    "firebase",
+    "allowlist",
+  ];
+  const changed: string[] = [];
+  for (const k of fields) {
+    if (JSON.stringify(prev[k]) !== JSON.stringify(next[k])) changed.push(k);
+  }
+  return changed;
 }

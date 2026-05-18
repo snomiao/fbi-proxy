@@ -4,15 +4,19 @@ import type { FirebaseProvider } from "../providers/firebase";
 import type { Session } from "../session";
 import { buildCookie } from "../session";
 import { decide } from "../allowlist";
+import type { AuditLogger } from "../audit";
+import { extractMeta } from "../audit";
 
 export function firebaseRoute(opts: {
   config: AuthConfig;
   provider: FirebaseProvider;
   session: Session;
+  audit?: AuditLogger;
 }): Hono {
   const app = new Hono();
 
   app.post("/api/auth/firebase", async (c) => {
+    const meta = extractMeta(c.req);
     const body = await c.req.json().catch(() => null);
     const idToken = typeof body?.idToken === "string" ? body.idToken : null;
     if (!idToken) return c.json({ error: "missing idToken" }, 400);
@@ -21,6 +25,10 @@ export function firebaseRoute(opts: {
     try {
       user = await opts.provider.verify(idToken);
     } catch (err) {
+      await opts.audit?.log(
+        { type: "signin.fail.firebase", reason: (err as Error).message },
+        meta,
+      );
       return c.json(
         { error: `firebase verify failed: ${(err as Error).message}` },
         401,
@@ -29,6 +37,15 @@ export function firebaseRoute(opts: {
 
     const decision = decide(opts.config.allowlist, { email: user.email });
     if (!decision.allow) {
+      await opts.audit?.log(
+        {
+          type: "signin.fail.allowlist",
+          provider: "firebase",
+          email: user.email,
+          reason: decision.reason,
+        },
+        meta,
+      );
       return c.json({ error: `Forbidden: ${decision.reason}` }, 403);
     }
 
@@ -38,6 +55,16 @@ export function firebaseRoute(opts: {
       name: user.name,
       picture: user.picture,
     });
+
+    await opts.audit?.log(
+      {
+        type: "signin.success",
+        provider: "firebase",
+        sub: user.sub,
+        email: user.email,
+      },
+      meta,
+    );
 
     c.header(
       "Set-Cookie",

@@ -92,6 +92,34 @@ describe("session", () => {
     expect(claims).not.toBeNull();
     expect(short.needsRefresh(claims!)).toBe(true);
   });
+
+  it("respects custom refreshThresholdSeconds (tight = never refreshes early)", async () => {
+    // ttl=3600, threshold=10 → only refresh in the last 10s.
+    const s = makeSession({
+      secret: SECRET,
+      audience: "test.dev",
+      ttlSeconds: 3600,
+      refreshThresholdSeconds: 10,
+    });
+    const token = await s.issue({ sub: "u1", email: "a@x.com" });
+    const claims = await s.verify(token);
+    expect(claims).not.toBeNull();
+    expect(s.needsRefresh(claims!)).toBe(false);
+  });
+
+  it("respects custom refreshThresholdSeconds (wide = refreshes immediately)", async () => {
+    // ttl=3600, threshold=4000 → always refresh, since 4000 > 3600.
+    const s = makeSession({
+      secret: SECRET,
+      audience: "test.dev",
+      ttlSeconds: 3600,
+      refreshThresholdSeconds: 4000,
+    });
+    const token = await s.issue({ sub: "u1", email: "a@x.com" });
+    const claims = await s.verify(token);
+    expect(claims).not.toBeNull();
+    expect(s.needsRefresh(claims!)).toBe(true);
+  });
 });
 
 describe("cookie helpers", () => {
@@ -695,5 +723,182 @@ describe("server / snolab branch", () => {
       clientSecret: undefined,
     };
     await expect(buildApp(cfg)).rejects.toThrow(/snolab default IdP/);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 5 — Audit log
+// ─────────────────────────────────────────────────────────────────────────────
+
+import { makeAuditLogger, type AuditEvent } from "../src/audit";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join as pathJoin } from "node:path";
+
+describe("audit logger", () => {
+  it("appends one JSONL line per event with iso timestamp", async () => {
+    const dir = await mkdtemp(pathJoin(tmpdir(), "fbi-audit-"));
+    const path = pathJoin(dir, "audit.log");
+    const log = makeAuditLogger({ path, enabled: true });
+    await log.log({
+      type: "signin.success",
+      provider: "google",
+      sub: "u1",
+      email: "a@x.com",
+    });
+    await log.log({ type: "logout", sub: "u1", email: "a@x.com" });
+    const raw = await readFile(path, "utf8");
+    const lines = raw.trim().split("\n");
+    expect(lines).toHaveLength(2);
+    const first = JSON.parse(lines[0]);
+    expect(first.type).toBe("signin.success");
+    expect(first.email).toBe("a@x.com");
+    expect(typeof first.ts).toBe("string");
+    expect(first.ts).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    await rm(dir, { recursive: true });
+  });
+
+  it("includes optional meta (ip, ua, host)", async () => {
+    const dir = await mkdtemp(pathJoin(tmpdir(), "fbi-audit-"));
+    const path = pathJoin(dir, "audit.log");
+    const log = makeAuditLogger({ path, enabled: true });
+    await log.log(
+      { type: "verify.fail", reason: "invalid" },
+      { ip: "1.2.3.4", userAgent: "curl/8.0", host: "x.fbi.com" },
+    );
+    const raw = await readFile(path, "utf8");
+    const evt = JSON.parse(raw.trim());
+    expect(evt.ip).toBe("1.2.3.4");
+    expect(evt.ua).toBe("curl/8.0");
+    expect(evt.host).toBe("x.fbi.com");
+    await rm(dir, { recursive: true });
+  });
+
+  it("writes nothing when disabled", async () => {
+    const dir = await mkdtemp(pathJoin(tmpdir(), "fbi-audit-"));
+    const path = pathJoin(dir, "audit.log");
+    const log = makeAuditLogger({ path, enabled: false });
+    await log.log({ type: "logout" });
+    let threw = false;
+    try {
+      await readFile(path, "utf8");
+    } catch {
+      threw = true;
+    }
+    expect(threw).toBe(true); // file shouldn't exist
+    await rm(dir, { recursive: true });
+  });
+
+  it("survives write failures without throwing (best-effort)", async () => {
+    // Pointing at an unwritable parent directory — makeAuditLogger should swallow
+    // the error rather than crash the auth flow.
+    const log = makeAuditLogger({
+      path: "/proc/cannot-write-here/audit.log",
+      enabled: true,
+    });
+    // Silence the console.error noise expected from the swallow path.
+    const orig = console.error;
+    console.error = () => {};
+    try {
+      await log.log({ type: "logout" });
+    } finally {
+      console.error = orig;
+    }
+    // If we got here without throwing, contract holds.
+    expect(true).toBe(true);
+  });
+});
+
+describe("verify route → audit", () => {
+  it("emits verify.fail:missing when no cookie present", async () => {
+    const { verifyRoute } = await import("../src/routes/verify");
+    const events: AuditEvent[] = [];
+    const fakeAudit = {
+      log: async (e: AuditEvent) => {
+        events.push(e);
+      },
+      path: () => "",
+    };
+    const session = makeSession({ secret: SECRET, audience: "test.dev" });
+    const app = verifyRoute({
+      config: fakeConfig(),
+      session,
+      audit: fakeAudit,
+    });
+    const res = await app.request("/api/auth/verify", { method: "GET" });
+    expect(res.status).toBe(401);
+    expect(events.length).toBe(1);
+    expect(events[0]).toMatchObject({ type: "verify.fail", reason: "missing" });
+  });
+
+  it("emits verify.fail:invalid for a tampered cookie", async () => {
+    const { verifyRoute } = await import("../src/routes/verify");
+    const events: AuditEvent[] = [];
+    const fakeAudit = {
+      log: async (e: AuditEvent) => {
+        events.push(e);
+      },
+      path: () => "",
+    };
+    const session = makeSession({ secret: SECRET, audience: "test.dev" });
+    const app = verifyRoute({
+      config: fakeConfig(),
+      session,
+      audit: fakeAudit,
+    });
+    const res = await app.request("/api/auth/verify", {
+      method: "GET",
+      headers: { cookie: `${COOKIE_NAME}=bogus.token.value` },
+    });
+    expect(res.status).toBe(401);
+    expect(events.length).toBe(1);
+    expect(events[0]).toMatchObject({ type: "verify.fail", reason: "invalid" });
+  });
+});
+
+describe("logout route → audit", () => {
+  it("emits logout with sub/email when cookie is valid", async () => {
+    const { logoutRoute } = await import("../src/routes/logout");
+    const events: AuditEvent[] = [];
+    const fakeAudit = {
+      log: async (e: AuditEvent) => {
+        events.push(e);
+      },
+      path: () => "",
+    };
+    const session = makeSession({ secret: SECRET, audience: "test.dev" });
+    const token = await session.issue({ sub: "u1", email: "a@x.com" });
+    const app = logoutRoute({
+      config: fakeConfig(),
+      session,
+      audit: fakeAudit,
+    });
+    const res = await app.request("/logout", {
+      method: "POST",
+      headers: { cookie: `${COOKIE_NAME}=${token}` },
+    });
+    expect(res.status).toBe(204);
+    expect(events.length).toBe(1);
+    expect(events[0]).toMatchObject({
+      type: "logout",
+      sub: "u1",
+      email: "a@x.com",
+    });
+  });
+
+  it("emits logout with no sub when cookie absent", async () => {
+    const { logoutRoute } = await import("../src/routes/logout");
+    const events: AuditEvent[] = [];
+    const fakeAudit = {
+      log: async (e: AuditEvent) => {
+        events.push(e);
+      },
+      path: () => "",
+    };
+    const app = logoutRoute({ config: fakeConfig(), audit: fakeAudit });
+    const res = await app.request("/logout", { method: "POST" });
+    expect(res.status).toBe(204);
+    expect(events.length).toBe(1);
+    expect(events[0]).toMatchObject({ type: "logout" });
   });
 });

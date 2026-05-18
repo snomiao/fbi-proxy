@@ -46,7 +46,8 @@
     "test:ui": "vitest --ui",
     "test:e2e": "vitest run e2e",
     "test:e2e:watch": "vitest e2e",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "dl-artifacts": "gh run list --workflow='Build and Release' --branch=main --limit=1 --json databaseId -q '.[0].databaseId' | xargs -I{} gh run download {} --dir release"
   },
   "dependencies": {
     "execa": "^9.6.1",

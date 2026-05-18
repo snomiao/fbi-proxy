@@ -19,7 +19,7 @@ export type SessionInput = {
 };
 
 const DEFAULT_TTL_SECONDS = 7 * 24 * 60 * 60;
-const REFRESH_THRESHOLD_SECONDS = 24 * 60 * 60;
+const DEFAULT_REFRESH_THRESHOLD_SECONDS = 24 * 60 * 60;
 
 export type Session = {
   issue(input: SessionInput): Promise<string>;
@@ -31,9 +31,12 @@ export function makeSession(opts: {
   secret: string;
   audience: string;
   ttlSeconds?: number;
+  refreshThresholdSeconds?: number;
 }): Session {
   const key = new TextEncoder().encode(opts.secret);
   const ttl = opts.ttlSeconds ?? DEFAULT_TTL_SECONDS;
+  const refreshThreshold =
+    opts.refreshThresholdSeconds ?? DEFAULT_REFRESH_THRESHOLD_SECONDS;
 
   return {
     async issue(input) {
@@ -66,7 +69,7 @@ export function makeSession(opts: {
 
     needsRefresh(claims) {
       const now = Math.floor(Date.now() / 1000);
-      return claims.exp - now < REFRESH_THRESHOLD_SECONDS;
+      return claims.exp - now < refreshThreshold;
     },
   };
 }
