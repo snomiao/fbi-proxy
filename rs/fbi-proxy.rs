@@ -1,4 +1,5 @@
 use clap::{Arg, Command};
+use fbi_proxy::metrics::Metrics;
 use fbi_proxy::routes::{self, CompiledRoute, RouteHit};
 use futures_util::{SinkExt, StreamExt};
 use http_body_util::{BodyExt, Full};
@@ -38,6 +39,7 @@ pub struct FBIProxy {
     /// atomically at runtime (hot reload from `--routes`). Reads use
     /// `.load()` and never block; writes are atomic Arc swaps.
     compiled_routes: Arc<ArcSwap<Vec<CompiledRoute>>>,
+    metrics: Arc<Metrics>,
 }
 
 /*
@@ -90,6 +92,7 @@ impl FBIProxy {
             number_regex: Regex::new(r"^\d+$").unwrap(),
             domain_filter,
             compiled_routes: Arc::new(ArcSwap::from_pointee(compiled_routes)),
+            metrics: Metrics::new(),
         }
     }
 
@@ -98,6 +101,12 @@ impl FBIProxy {
     /// proxy.
     pub fn routes_handle(&self) -> Arc<ArcSwap<Vec<CompiledRoute>>> {
         Arc::clone(&self.compiled_routes)
+    }
+
+    /// Return a handle to the live metrics counters so the metrics
+    /// admin endpoint can read them.
+    pub fn metrics_handle(&self) -> Arc<Metrics> {
+        Arc::clone(&self.metrics)
     }
 
     fn landing_page_html() -> String {
@@ -266,6 +275,8 @@ npx fbi-proxy -d fbi.example.com  # Only accept *.fbi.example.com</pre>
                     host_header,
                     uri
                 );
+                self.metrics.host_rejected_total.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                self.metrics.record_status(502);
                 return Ok(Response::builder()
                     .status(StatusCode::BAD_GATEWAY)
                     .body(Full::new(Bytes::from("Bad Gateway: Host not allowed")).map_err(|e| match e {}).boxed())?);
@@ -275,6 +286,7 @@ npx fbi-proxy -d fbi.example.com  # Only accept *.fbi.example.com</pre>
         // Serve landing page for root domain access
         if target_host == "@LANDING" {
             info!("GET {} => LANDING 200", host_header);
+            self.metrics.record_status(200);
             return Ok(Response::builder()
                 .status(StatusCode::OK)
                 .header("Content-Type", "text/html; charset=utf-8")
@@ -408,6 +420,7 @@ npx fbi-proxy -d fbi.example.com  # Only accept *.fbi.example.com</pre>
 
         // Handle WebSocket upgrade requests
         if hyper_tungstenite::is_upgrade_request(&req) {
+            self.metrics.websocket_upgrades_total.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             return self
                 .handle_websocket_upgrade(req, &target_host, &new_host)
                 .await;
@@ -457,6 +470,7 @@ npx fbi-proxy -d fbi.example.com  # Only accept *.fbi.example.com</pre>
                     original_uri,
                     status.as_u16()
                 );
+                self.metrics.record_status(status.as_u16());
                 // Convert the response body back to BoxBody
                 let (parts, body) = response.into_parts();
                 let boxed_body = body.map_err(|e| e).boxed();
@@ -471,6 +485,8 @@ npx fbi-proxy -d fbi.example.com  # Only accept *.fbi.example.com</pre>
                     original_uri,
                     e
                 );
+                self.metrics.upstream_connect_failures_total.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                self.metrics.record_status(502);
                 Ok(Response::builder()
                     .status(StatusCode::BAD_GATEWAY)
                     .header("Content-Type", "text/plain")
@@ -484,6 +500,8 @@ npx fbi-proxy -d fbi.example.com  # Only accept *.fbi.example.com</pre>
                     target_host,
                     original_uri
                 );
+                self.metrics.upstream_timeouts_total.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                self.metrics.record_status(502);
                 Ok(Response::builder()
                     .status(StatusCode::BAD_GATEWAY)
                     .header("Content-Type", "text/plain")
@@ -631,6 +649,50 @@ fn load_routes(yaml_src: &str, source_label: &str) -> Vec<CompiledRoute> {
     }
 }
 
+/// Run a tiny HTTP server on 127.0.0.1:{port} that responds to
+/// `GET /metrics` with the current counters in Prometheus text format.
+/// All other paths return 404. The endpoint binds loopback-only so
+/// metrics aren't exposed via the user-facing proxy port.
+async fn serve_metrics(
+    metrics: Arc<Metrics>,
+    port: u16,
+) -> Result<(), BoxError> {
+    let addr: SocketAddr = format!("127.0.0.1:{}", port).parse()?;
+    let listener = TcpListener::bind(addr).await?;
+    info!("[metrics] listening on http://{}/metrics", addr);
+    println!("[metrics] listening on http://{}/metrics", addr);
+
+    loop {
+        let (stream, _) = listener.accept().await?;
+        let metrics = Arc::clone(&metrics);
+        let io = TokioIo::new(stream);
+        tokio::spawn(async move {
+            let service = service_fn(move |req: Request<Incoming>| {
+                let metrics = Arc::clone(&metrics);
+                async move {
+                    let resp = if req.uri().path() == "/metrics" {
+                        let body = metrics.render_prometheus();
+                        Response::builder()
+                            .status(StatusCode::OK)
+                            .header("Content-Type", "text/plain; version=0.0.4")
+                            .body(Full::new(Bytes::from(body)).map_err(|e| match e {}).boxed())
+                            .unwrap()
+                    } else {
+                        Response::builder()
+                            .status(StatusCode::NOT_FOUND)
+                            .body(Full::new(Bytes::from("not found")).map_err(|e| match e {}).boxed())
+                            .unwrap()
+                    };
+                    Ok::<_, Infallible>(resp)
+                }
+            });
+            if let Err(e) = http1::Builder::new().serve_connection(io, service).await {
+                error!("[metrics] connection error: {}", e);
+            }
+        });
+    }
+}
+
 /// Parse + compile a routes file without panicking. Returns Err with a
 /// human-readable message on any failure. Used by the hot-reload path
 /// where we want to log + keep current rules rather than crash.
@@ -738,6 +800,25 @@ pub async fn start_proxy_server(
     // place — never crash the running proxy because of a typo in YAML.
     if let Some(path) = watch_path {
         spawn_routes_watcher(path, proxy.routes_handle());
+    }
+
+    // Metrics: when FBI_PROXY_METRICS_PORT is set, expose a 127.0.0.1-bound
+    // Prometheus-text endpoint at /metrics on that port. Off by default —
+    // never exposed on the proxy's user-traffic port.
+    if let Ok(metrics_port_str) = std::env::var("FBI_PROXY_METRICS_PORT") {
+        if let Ok(metrics_port) = metrics_port_str.parse::<u16>() {
+            let metrics = proxy.metrics_handle();
+            tokio::spawn(async move {
+                if let Err(e) = serve_metrics(metrics, metrics_port).await {
+                    error!("[metrics] server exited: {}", e);
+                }
+            });
+        } else {
+            warn!(
+                "[metrics] FBI_PROXY_METRICS_PORT='{}' is not a valid port number; metrics disabled",
+                metrics_port_str
+            );
+        }
     }
 
     let listener = TcpListener::bind(addr).await?;

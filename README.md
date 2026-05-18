@@ -42,7 +42,7 @@ FBI-Proxy provides easy HTTPS access to your local services with intelligent dom
 
 - [x] **Custom Domain Wizard polish** — Print the DNS A-records to add (`*.example.dev → <ip>`) and a Caddyfile-with-DNS-01 sample for Cloudflare during `--reconfigure` on a non-fbi.com domain
 - [x] **Hot Reload** — `routes.yaml` is watched; edits reload atomically without a restart (typos keep the previous rules live)
-- [ ] **Metrics** — `/varz`-style counters: requests, 2xx/4xx/5xx, upstream-connect-failures, sessions-issued, sessions-refreshed (Prometheus format)
+- [x] **Metrics** — Set `FBI_PROXY_METRICS_PORT=<port>` to expose Prometheus counters on a separate 127.0.0.1-bound admin endpoint: requests, 2xx/3xx/4xx/5xx, upstream connect failures, upstream timeouts, WebSocket upgrades, host-rejected. (fbi-auth-side session counters still on the to-do.)
 - [ ] **Health Checks** — Active upstream liveness probes, not just per-request failure detection
 - [ ] **Cloudflare Tunnel / ngrok Integration** — Expose `*.your-domain` publicly without owning a static IP
 
