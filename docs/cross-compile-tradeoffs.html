@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>fbi-proxy: cross-compile tradeoffs</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #fff;
+    --fg: #111;
+    --muted: #666;
+    --accent: #0a6;
+    --border: #e5e5e5;
+    --code-bg: rgba(127,127,127,0.1);
+    --row-alt: rgba(127,127,127,0.04);
+    --good: #0a6;
+    --neutral: #888;
+    --warn: #b80;
+    --bad: #c33;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d0d10;
+      --fg: #e8e8e8;
+      --muted: #999;
+      --border: #2a2a2e;
+      --row-alt: rgba(255,255,255,0.03);
+      --good: #4cd9a4;
+      --warn: #e0a040;
+      --bad: #ff6b6b;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--fg); }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    max-width: 56rem; margin: 0 auto; padding: 2.5rem 1.25rem 5rem;
+    line-height: 1.55;
+  }
+  h1 { font-size: 1.9rem; margin: 0 0 0.25rem; letter-spacing: -0.01em; }
+  h2 { font-size: 1.25rem; margin: 2.5rem 0 0.75rem; padding-bottom: 0.25rem; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 1.05rem; margin: 1.5rem 0 0.5rem; }
+  .subtitle { color: var(--muted); margin: 0 0 1.5rem; font-size: 0.95rem; }
+  .tldr {
+    border-left: 3px solid var(--accent);
+    background: var(--row-alt);
+    padding: 0.9rem 1rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .tldr strong { color: var(--accent); }
+  p, li { font-size: 0.95rem; }
+  code, kbd { font-family: ui-monospace, SF Mono, Menlo, monospace; font-size: 0.85em; background: var(--code-bg); padding: 0.1em 0.35em; border-radius: 4px; }
+  pre { background: var(--code-bg); padding: 0.75rem 0.9rem; border-radius: 6px; overflow-x: auto; font-size: 0.85rem; }
+  pre code { background: none; padding: 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.88rem; margin: 0.75rem 0 1rem; }
+  th, td { text-align: left; padding: 0.55rem 0.7rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { font-weight: 600; color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; }
+  tr:nth-child(even) td { background: var(--row-alt); }
+  .good { color: var(--good); }
+  .warn { color: var(--warn); }
+  .bad { color: var(--bad); }
+  .neutral { color: var(--neutral); }
+  .pill { display: inline-block; padding: 0.1em 0.55em; border-radius: 999px; font-size: 0.75rem; border: 1px solid currentColor; }
+  ul, ol { padding-left: 1.4rem; }
+  .footer { color: var(--muted); font-size: 0.8rem; margin-top: 3rem; border-top: 1px solid var(--border); padding-top: 1rem; }
+  .scenario {
+    background: var(--row-alt);
+    border-radius: 8px;
+    padding: 0.9rem 1.1rem;
+    margin: 0.6rem 0;
+  }
+  .scenario h3 { margin-top: 0; }
+  .scenario p:last-child { margin-bottom: 0; }
+</style>
+</head>
+<body>
+
+<h1>fbi-proxy: cross-compile tradeoffs</h1>
+<p class="subtitle">End-user perspective vs. infra cost · prepared 2026-05-18</p>
+
+<div class="tldr">
+  <strong>TL;DR</strong> — Status quo (CI matrix on native runners) is already correct for fbi-proxy.
+  Every push produces 6 binaries in ~5 min parallel, at $0 (public repo). End users get
+  natively-built binaries with no glibc/macOS-version surprises. Local cross-compile is only
+  worth setting up if you want sub-minute iteration on a non-host target — and even then,
+  <code>gh run download</code> against the latest CI run is usually faster than re-running locally.
+</div>
+
+<h2>What end users get</h2>
+
+<p>Regardless of build method, the user runs <code>bunx fbi-proxy</code> which downloads the right
+binary for their host. The interesting question is: does the binary <em>just work</em>?</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Concern</th>
+      <th>Native-on-CI (current)</th>
+      <th><code>cargo-zigbuild</code></th>
+      <th><code>cross</code></th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>All 6 targets shipped</td>
+      <td class="good">Yes</td>
+      <td class="good">Yes</td>
+      <td class="warn">No — macOS missing<sup>1</sup></td>
+    </tr>
+    <tr>
+      <td>Linux glibc compatibility floor</td>
+      <td class="neutral">ubuntu-latest libc (~2.39, May 2026)</td>
+      <td class="good">Pick any glibc version explicitly<br><code>--target x86_64-unknown-linux-gnu.2.17</code></td>
+      <td class="neutral">Image-dependent (~2.31 by default)</td>
+    </tr>
+    <tr>
+      <td>macOS minimum version</td>
+      <td class="neutral">macos-latest SDK (macOS 14+)</td>
+      <td class="good">Configurable via <code>MACOSX_DEPLOYMENT_TARGET</code></td>
+      <td class="bad">N/A</td>
+    </tr>
+    <tr>
+      <td>Windows MSVC subtleties</td>
+      <td class="good">Native MSVC — zero surprises</td>
+      <td class="neutral">MinGW-style, not MSVC</td>
+      <td class="neutral">MinGW-style, not MSVC</td>
+    </tr>
+    <tr>
+      <td>Binary signing path</td>
+      <td class="good">Can codesign in CI (Apple/Windows)</td>
+      <td class="warn">Local — manual signing</td>
+      <td class="warn">Local — manual signing</td>
+    </tr>
+    <tr>
+      <td>Trust signal (provenance)</td>
+      <td class="good">Built on GitHub-hosted runners; SLSA-friendly</td>
+      <td class="warn">Built on your machine</td>
+      <td class="warn">Built on your machine</td>
+    </tr>
+  </tbody>
+</table>
+
+<p class="subtitle">
+<sup>1</sup> Apple's macOS SDK isn't redistributable, so Docker-based cross can't legally ship
+a macOS toolchain. <code>cargo-zigbuild</code> sidesteps this with Zig's Mach-O linker but you
+still need the macOS SDK headers on disk.
+</p>
+
+<h2>Infra cost</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Cost</th>
+      <th>Native-on-CI (current)</th>
+      <th><code>cargo-zigbuild</code> local</th>
+      <th><code>cross</code> local</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Wall-clock per build (6 targets)</td>
+      <td>~5 min (parallel matrix)</td>
+      <td>~3-6 min (sequential, one host)</td>
+      <td>~6-10 min (Docker pull then build)</td>
+    </tr>
+    <tr>
+      <td>First-run setup</td>
+      <td class="good">$0 — already configured</td>
+      <td class="neutral"><code>cargo install cargo-zigbuild</code><br>+ <code>brew install zig</code> or <code>pip install ziglang</code> (~50MB)</td>
+      <td class="neutral"><code>cargo install cross</code><br>+ Docker images (500MB-1GB total)</td>
+    </tr>
+    <tr>
+      <td>Per-build runner $ (private repo)<sup>2</sup></td>
+      <td>~$1.04 (2× Linux + 2× Windows 2× + 2× macOS 10×)</td>
+      <td class="good">$0 (local)</td>
+      <td class="good">$0 (local)</td>
+    </tr>
+    <tr>
+      <td>Per-build runner $ (public repo — <em>this repo</em>)</td>
+      <td class="good">$0 — unlimited minutes</td>
+      <td class="good">$0</td>
+      <td class="good">$0</td>
+    </tr>
+    <tr>
+      <td>Iteration loop (incremental edit → binary)</td>
+      <td class="bad">5 min push → wait → download</td>
+      <td class="good">~30s incremental</td>
+      <td class="neutral">~1-2 min (Docker overhead)</td>
+    </tr>
+    <tr>
+      <td>Maintenance — toolchain drift</td>
+      <td class="good">GitHub-managed runners auto-update</td>
+      <td>Zig releases ~monthly; pin via lockfile</td>
+      <td>Docker images updated upstream</td>
+    </tr>
+    <tr>
+      <td>Disk footprint</td>
+      <td class="good">$0 local</td>
+      <td>~150 MB</td>
+      <td>~1.5 GB</td>
+    </tr>
+  </tbody>
+</table>
+
+<p class="subtitle"><sup>2</sup> Rough estimate using GitHub's per-minute pricing
+(May 2026): Linux $0.008/min, Windows $0.016/min, macOS $0.08/min × ~5 min each.</p>
+
+<h2>When each one makes sense</h2>
+
+<div class="scenario">
+  <h3>Stick with CI matrix (current) <span class="pill good">RECOMMENDED</span></h3>
+  <p>Public repo · cuts no corners · provenance + signing path · zero local toolchain. The
+  only downside is iteration time, and <code>gh run download &lt;run-id&gt;</code> closes that
+  gap to one command.</p>
+</div>
+
+<div class="scenario">
+  <h3>Add <code>cargo-zigbuild</code> if…</h3>
+  <p>You want to test a <em>specific</em> non-host target quickly without pushing to main —
+  e.g., debugging a macOS-only segfault from a Linux dev box, or producing a
+  glibc-2.17-compatible Linux binary for legacy servers. <strong>Only setup that lets a Linux
+  host produce macOS binaries</strong>.</p>
+</div>
+
+<div class="scenario">
+  <h3>Add <code>cross</code> if…</h3>
+  <p>You want a clean Docker-per-target sandbox, you don't need macOS locally, and you prefer
+  one tool that handles linux+windows. Roughly equivalent in capability to direct
+  <code>cargo build --target=X</code> with system toolchains installed, but no host-pollution.</p>
+</div>
+
+<div class="scenario">
+  <h3>Switch <strong>away</strong> from native CI runners if…</h3>
+  <p>You move this repo to a private org and macOS minutes start showing up on the invoice.
+  At that point, build linux + windows with <code>cargo-zigbuild</code> on a single Linux
+  runner (saves ~75%), and keep one macOS runner for the two Apple targets. Don't optimize
+  this prematurely.</p>
+</div>
+
+<h2>Concrete recipes</h2>
+
+<h3><code>gh run download</code> — the no-install path</h3>
+<pre><code>gh run list --workflow="Build and Release" --branch=main --limit=1 --json databaseId -q '.[0].databaseId' \
+  | xargs -I{} gh run download {} --dir ./release</code></pre>
+<p>Drops all 6 binaries into <code>release/</code>. ~2 seconds of your time, zero local toolchain.</p>
+
+<h3><code>cargo-zigbuild</code> — one-time setup</h3>
+<pre><code># Install
+cargo install cargo-zigbuild
+pip install ziglang   # or: brew install zig
+
+# Add targets
+rustup target add aarch64-unknown-linux-gnu
+rustup target add x86_64-apple-darwin aarch64-apple-darwin
+rustup target add x86_64-pc-windows-gnu
+
+# Build (any target, no extra config)
+cargo zigbuild --release --target aarch64-apple-darwin
+cargo zigbuild --release --target x86_64-unknown-linux-gnu.2.17  # pin glibc</code></pre>
+
+<h3><code>cross</code> — one-time setup</h3>
+<pre><code># Install (Docker must be running)
+cargo install cross --git https://github.com/cross-rs/cross
+
+# Build
+cross build --release --target aarch64-unknown-linux-gnu
+cross build --release --target x86_64-pc-windows-gnu</code></pre>
+
+<h2>Risk register</h2>
+
+<ul>
+  <li><strong>glibc version creep.</strong> Right now Linux binaries built on
+    <code>ubuntu-latest</code> require the runner's current glibc on user machines.
+    If users on older distros report "GLIBC_2.X not found", switch the Linux x64 job
+    to <code>cargo-zigbuild</code> with a pinned floor (e.g. <code>.2.17</code> matches
+    CentOS 7 / RHEL 7).</li>
+  <li><strong>macOS code signing.</strong> Unsigned macOS binaries trigger Gatekeeper
+    warnings. The current setup leaves room to add codesigning + notarization steps in CI
+    (would need Apple Developer ID secrets in repo settings) — local cross-compile can't
+    notarize without uploading to Apple's service anyway.</li>
+  <li><strong>Windows arm64 maturity.</strong> Native MSVC arm64 is the right call (which
+    current CI does); MinGW arm64 from <code>cross</code>/<code>zigbuild</code> is less
+    battle-tested.</li>
+</ul>
+
+<h2>Recommendation</h2>
+<p>Don't change anything. Add this two-liner to <code>package.json</code> scripts so
+"download the latest CI build for my host" is one keystroke:</p>
+
+<pre><code>"scripts": {
+  "dl-artifacts": "gh run list --workflow='Build and Release' --branch=main --limit=1 --json databaseId -q '.[0].databaseId' | xargs -I{} gh run download {} --dir release"
+}</code></pre>
+
+<p>Revisit if (a) the repo goes private, (b) users hit glibc-floor issues, or (c) you want
+sub-minute iteration on a target you don't run natively.</p>
+
+<div class="footer">
+  Source: <code>docs/cross-compile-tradeoffs.html</code> · generated for snomiao/fbi-proxy · 2026-05-18
+</div>
+
+</body>
+</html>
