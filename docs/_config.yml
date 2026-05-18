@@ -5,6 +5,9 @@ title: FBI-Proxy Documentation
 description: Easy HTTPS access to your local services with intelligent domain routing
 url: https://snomiao.github.io
 baseurl: /fbi-proxy
+# Required for jekyll-seo-tag / jekyll-github-metadata to identify the repo
+# when building outside the original git clone (e.g., on the Pages runner).
+repository: snomiao/fbi-proxy
 
 # Theme
 theme: minima
