@@ -1,3 +1,9 @@
+# [1.14.0](https://github.com/snomiao/fbi-proxy/compare/v1.13.0...v1.14.0) (2026-05-18)
+
+### Features
+
+- **routing:** hot reload — watch routes.yaml, swap atomically ([d9372c7](https://github.com/snomiao/fbi-proxy/commit/d9372c7b811b88eaac2d25545c5b9a156fe52f92))
+
 # [1.13.0](https://github.com/snomiao/fbi-proxy/compare/v1.12.0...v1.13.0) (2026-05-18)
 
 ### Features
