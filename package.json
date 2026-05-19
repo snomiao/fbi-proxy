@@ -39,6 +39,8 @@
     "format": "prettier --write .",
     "lint": "prettier --check .",
     "prepare": "husky",
+    "port-forward:install": "bun ts/install-port-forward.ts",
+    "port-forward:uninstall": "bun ts/install-port-forward.ts --uninstall",
     "start": "bun ts/cli.ts",
     "start:rs": "./target/release/fbi-proxy",
     "test": "vitest run",

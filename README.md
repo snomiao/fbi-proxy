@@ -123,15 +123,28 @@ Same shape — public wildcard apex points at _something_ — but `*.fbi.com` po
 ## Usage
 
 ```sh
-# launch
+# Default: one-shot setup → daemon + system-trusted cert + pf :443→:8443.
+# Pops a single macOS auth dialog the first time, then https://fbi.com/
+# (and *.fbi.com) just works with a green lock. Re-running is idempotent.
 bunx fbi-proxy
 
-# expose to LAN
-bunx fbi-proxy --host 0.0.0.0 --port=2432
+# Custom apex (any wildcard-DNS domain that resolves to 127.0.0.1)
+bunx fbi-proxy --domain example.dev
 
-# run with docker
+# Tear it all down (oxmgr daemon + pf rule + /etc/pf.conf reference + plist)
+bunx fbi-proxy setup --uninstall
+
+# Legacy foreground modes (no daemon, no system trust):
+bunx fbi-proxy --with-caddy --domain example.dev   # Caddy-fronted TLS
+bunx fbi-proxy --dev                               # dev / Caddy-internal CA
+bunx fbi-proxy --tls --port 443                    # raw Rust TLS, foreground
+FBI_PROXY_PORT=2432 bunx fbi-proxy                 # explicit non-default port
+
+# Docker (foreground, no system integration)
 docker run --rm --name fbi-proxy --network=host snomiao/fbi-proxy
 ```
+
+The default does the full macOS integration: registers an [oxmgr](https://github.com/oxmgr)-managed daemon on `:8443`, writes `/etc/pf.anchors/com.snomiao.fbi-proxy` plus a `/Library/LaunchDaemons/com.snomiao.fbi-proxy-pf.plist` that re-applies the pf rule at boot, and adds the cert to the System keychain. Subsequent boots restore everything without any password prompt.
 
 ## Using with Caddy (Optional)
 

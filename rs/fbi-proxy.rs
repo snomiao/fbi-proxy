@@ -783,12 +783,23 @@ fn spawn_routes_watcher(
     });
 }
 
+pub struct TlsOptions {
+    /// Apex domain used for SAN entries on the self-signed cert.
+    /// Empty string falls back to `localhost` + `127.0.0.1`.
+    pub domain: String,
+    /// Directory the generated cert+key are persisted to. The same
+    /// fingerprint is reused across boots so browsers can remember
+    /// "trust this exception" once.
+    pub cert_dir: std::path::PathBuf,
+}
+
 pub async fn start_proxy_server(
     host: Option<&str>,
     port: u16,
     domain_filter: Option<String>,
     compiled_routes: Vec<CompiledRoute>,
     watch_path: Option<String>,
+    tls: Option<TlsOptions>,
 ) -> Result<(), BoxError> {
     let host = host.unwrap_or("127.0.0.1");
     let addr: SocketAddr = format!("{}:{}", host, port).parse()?;
@@ -821,10 +832,45 @@ pub async fn start_proxy_server(
         }
     }
 
+    let acceptor = match &tls {
+        Some(opts) => {
+            let acc = fbi_proxy::tls::build_acceptor(&opts.domain, &opts.cert_dir)?;
+            // Auto-install the self-signed leaf as a system trust anchor when
+            // running with the privileges to do so. Idempotent — no-op if
+            // already trusted. If unprivileged (and untrusted), this errors and
+            // we surface a clear message rather than booting silently into
+            // "browser warnings forever" mode.
+            let cert_path = fbi_proxy::tls::cert_pem_path(&opts.domain, &opts.cert_dir);
+            match fbi_proxy::tls::install_to_system_trust(&cert_path) {
+                Ok(true) => println!(
+                    "TLS: cert installed to system trust store ({})",
+                    cert_path.display()
+                ),
+                Ok(false) => {}
+                Err(e) => {
+                    eprintln!(
+                        "[tls] could not auto-install cert to system trust: {e}\n      \
+                         start with sudo to install, or accept the browser warning."
+                    );
+                }
+            }
+            Some(acc)
+        }
+        None => None,
+    };
+
     let listener = TcpListener::bind(addr).await?;
 
-    info!("FBI Proxy server running on http://{}", addr);
-    println!("FBI Proxy listening on: http://{}", addr);
+    let scheme = if acceptor.is_some() { "https" } else { "http" };
+    info!("FBI Proxy server running on {}://{}", scheme, addr);
+    println!("FBI Proxy listening on: {}://{}", scheme, addr);
+    if let Some(opts) = &tls {
+        println!(
+            "TLS: self-signed cert at {}/{}.pem (browser warning expected — Phase 1)",
+            opts.cert_dir.display(),
+            if opts.domain.is_empty() { "localhost" } else { &opts.domain }
+        );
+    }
     if let Some(ref domain) = domain_filter {
         if !domain.is_empty() {
             println!("Domain filter: Only accepting requests for *.{}", domain);
@@ -856,20 +902,35 @@ pub async fn start_proxy_server(
 
     loop {
         let (stream, _) = listener.accept().await?;
-        let io = TokioIo::new(stream);
         let proxy = proxy.clone();
+        let acceptor = acceptor.clone();
 
         tokio::task::spawn(async move {
             let service = service_fn(move |req| handle_connection(req, proxy.clone()));
 
-            if let Err(err) = http1::Builder::new()
+            let mut builder = http1::Builder::new();
+            builder
                 .preserve_header_case(true)
-                .title_case_headers(true)
-                .serve_connection(io, service)
-                .with_upgrades()
-                .await
-            {
-                error!("Error serving connection: {:?}", err);
+                .title_case_headers(true);
+
+            match acceptor {
+                Some(a) => match a.accept(stream).await {
+                    Ok(tls_stream) => {
+                        let io = TokioIo::new(tls_stream);
+                        if let Err(err) = builder.serve_connection(io, service).with_upgrades().await {
+                            error!("Error serving TLS connection: {:?}", err);
+                        }
+                    }
+                    Err(err) => {
+                        error!("TLS handshake failed: {:?}", err);
+                    }
+                },
+                None => {
+                    let io = TokioIo::new(stream);
+                    if let Err(err) = builder.serve_connection(io, service).with_upgrades().await {
+                        error!("Error serving connection: {:?}", err);
+                    }
+                }
             }
         });
     }
@@ -956,16 +1017,47 @@ TRY RUN:
                 .env("FBI_PROXY_ROUTES")
                 .default_value("")
         )
+        .arg(
+            Arg::new("tls")
+                .long("tls")
+                .help("Terminate TLS using a self-signed cert (browser warning expected — Phase 1, no system trust install). Use --port 443 with sudo for the standard HTTPS port. (env: FBI_PROXY_TLS)")
+                .env("FBI_PROXY_TLS")
+                .num_args(0)
+                .action(clap::ArgAction::SetTrue)
+        )
+        .arg(
+            Arg::new("cert-dir")
+                .long("cert-dir")
+                .value_name("DIR")
+                .help("Directory for the self-signed cert+key (env: FBI_PROXY_CERT_DIR, default: ~/.config/fbi-proxy/certs)")
+                .env("FBI_PROXY_CERT_DIR")
+                .default_value("")
+        )
         .get_matches();
 
-    let port = matches
-        .get_one::<String>("port")
-        .unwrap()
-        .parse::<u16>()
-        .unwrap_or_else(|_| {
-            error!("Invalid port value, using default 2432");
-            2432
-        });
+    let tls_enabled = matches.get_flag("tls");
+
+    // Default port jumps to 443 when --tls is set unless the user explicitly
+    // overrode --port / FBI_PROXY_PORT. Binding :443 needs sudo on most
+    // systems; the helpful failure path is documented in the bind error.
+    let port_source = matches.value_source("port");
+    let port_explicit = matches!(
+        port_source,
+        Some(clap::parser::ValueSource::CommandLine)
+            | Some(clap::parser::ValueSource::EnvVariable)
+    );
+    let port = if tls_enabled && !port_explicit {
+        443
+    } else {
+        matches
+            .get_one::<String>("port")
+            .unwrap()
+            .parse::<u16>()
+            .unwrap_or_else(|_| {
+                error!("Invalid port value, using default 2432");
+                2432
+            })
+    };
 
     let host = matches.get_one::<String>("host").unwrap();
     let domain = matches.get_one::<String>("domain").unwrap();
@@ -996,11 +1088,26 @@ TRY RUN:
         )
     };
 
+    let cert_dir_raw = matches.get_one::<String>("cert-dir").unwrap();
+    let tls_opts = if tls_enabled {
+        let cert_dir = if cert_dir_raw.is_empty() {
+            fbi_proxy::tls::default_cert_dir()
+        } else {
+            std::path::PathBuf::from(cert_dir_raw)
+        };
+        Some(TlsOptions {
+            domain: domain.clone(),
+            cert_dir,
+        })
+    } else {
+        None
+    };
+
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
         info!(
-            "Starting FBI-Proxy on {}:{} with domain filter: {:?}",
-            host, port, domain_filter
+            "Starting FBI-Proxy on {}:{} with domain filter: {:?}, tls: {}",
+            host, port, domain_filter, tls_enabled
         );
         if let Err(e) = start_proxy_server(
             Some(host),
@@ -1008,6 +1115,7 @@ TRY RUN:
             domain_filter,
             compiled_routes,
             watch_path,
+            tls_opts,
         )
         .await
         {
