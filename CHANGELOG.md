@@ -1,3 +1,10 @@
+# [1.16.0](https://github.com/snomiao/fbi-proxy/compare/v1.15.0...v1.16.0) (2026-05-19)
+
+### Features
+
+- **auth:** add 'local' provider — username/password, no network ([7f02fb9](https://github.com/snomiao/fbi-proxy/commit/7f02fb9d79d3a56769a5eb3db177f7bcb84e2fe5))
+- ship `fbi-proxy setup` — daemon + trusted cert + pf :443→:8443 ([eec5f5a](https://github.com/snomiao/fbi-proxy/commit/eec5f5af41be26927353d20a647cbe2e89ef7068))
+
 # [1.15.0](https://github.com/snomiao/fbi-proxy/compare/v1.14.0...v1.15.0) (2026-05-18)
 
 ### Features
