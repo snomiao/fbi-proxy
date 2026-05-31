@@ -355,7 +355,11 @@ function runAsRoot(script: string): boolean {
     );
   }
   console.log("[setup] (opening macOS auth dialog — enter password)");
-  const wrapped = `do shell script ${appleScriptQuote(script)} with administrator privileges`;
+  const prompt =
+    "fbi-proxy setup needs administrator access to install its HTTPS " +
+    "certificate into the system trust store and add a pf rule forwarding " +
+    "port 443 to the local proxy.";
+  const wrapped = `do shell script ${appleScriptQuote(script)} with prompt ${appleScriptQuote(prompt)} with administrator privileges`;
   return (
     spawnSync("osascript", ["-e", wrapped], { stdio: "inherit" }).status === 0
   );

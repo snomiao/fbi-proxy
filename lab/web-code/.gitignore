@@ -1,0 +1,7 @@
+node_modules/
+# VS Code serve-web data dir (seeded at runtime)
+.vscode-serve-web/
+# rech / playwright-cli debug artifacts
+.playwright-cli/
+.playwright-cli-multi-tab/
+.debug-shot.png

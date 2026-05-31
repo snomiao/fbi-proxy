@@ -11,14 +11,41 @@
  */
 
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const VSCODE_PORT = 9999;
 const VSCODE_BASE = "/_vscode/";
+// Lab-local server data dir so we can pre-seed settings (and not pollute
+// the user's global ~/.vscode-server).
+const VSCODE_DATA_DIR = path.join(HERE, ".vscode-serve-web");
 
 const children: ChildProcess[] = [];
+
+/**
+ * Pre-seed VS Code's User settings for the embedded serve-web instance.
+ * Workspace Trust is disabled so opening a folder via `?folder=` shows the
+ * file tree immediately instead of starting in restricted mode (which
+ * otherwise leaves the Explorer empty until you click "Trust"). This is an
+ * embedded, single-user dev tool, so the trust gate adds only friction.
+ */
+function seedVscodeSettings(): void {
+  const userDir = path.join(VSCODE_DATA_DIR, "data", "User");
+  mkdirSync(userDir, { recursive: true });
+  writeFileSync(
+    path.join(userDir, "settings.json"),
+    JSON.stringify(
+      {
+        "security.workspace.trust.enabled": false,
+        "workbench.startupEditor": "none",
+      },
+      null,
+      2,
+    ),
+  );
+}
 
 function run(cmd: string, args: string[], label: string): ChildProcess {
   console.log(`[web-code] starting ${label}: ${cmd} ${args.join(" ")}`);
@@ -39,6 +66,7 @@ function fbiProxy(args: string[]): number {
 
 async function main() {
   // 1. VS Code web server
+  seedVscodeSettings();
   run(
     "code",
     [
@@ -47,7 +75,10 @@ async function main() {
       String(VSCODE_PORT),
       "--server-base-path",
       VSCODE_BASE,
+      "--server-data-dir",
+      VSCODE_DATA_DIR,
       "--without-connection-token",
+      "--accept-server-license-terms",
     ],
     "code serve-web",
   );

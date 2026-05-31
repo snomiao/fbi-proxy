@@ -122,7 +122,10 @@ function runAsRoot(script: string): number {
     return result.status ?? 1;
   }
   // GUI password dialog — works without TTY (Claude Code, oxmgr children, etc.)
-  const osascript = `do shell script ${appleScriptQuote(script)} with administrator privileges`;
+  const prompt =
+    `fbi-proxy needs administrator access to install a pf port-forward ` +
+    `(:${argv.from} → :${argv.to}) and its boot LaunchDaemon.`;
+  const osascript = `do shell script ${appleScriptQuote(script)} with prompt ${appleScriptQuote(prompt)} with administrator privileges`;
   const result = spawnSync("osascript", ["-e", osascript], {
     stdio: "inherit",
   });

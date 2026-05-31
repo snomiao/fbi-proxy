@@ -271,7 +271,8 @@ async function ensureRootIfTlsNeedsIt(opts: {
 
   console.log(`[fbi-proxy] no TTY — opening macOS authentication dialog…`);
   const shellCmd = sudoArgs.map(shellQuote).join(" ");
-  const script = `do shell script ${appleScriptQuote(shellCmd)} with administrator privileges`;
+  const prompt = `fbi-proxy needs administrator access to ${reasons} for https://${opts.domain}/.`;
+  const script = `do shell script ${appleScriptQuote(shellCmd)} with prompt ${appleScriptQuote(prompt)} with administrator privileges`;
   const result = spawnSync("osascript", ["-e", script], { stdio: "inherit" });
   process.exit(result.status ?? 1);
 }
