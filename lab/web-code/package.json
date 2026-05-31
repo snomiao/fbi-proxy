@@ -1,0 +1,13 @@
+{
+  "name": "web-code",
+  "private": true,
+  "type": "module",
+  "description": "fbi-proxy lab: VS Code web + iframe shell under one origin",
+  "scripts": {
+    "dev": "bun run start.ts",
+    "shell": "vite --port 3001 --strictPort"
+  },
+  "devDependencies": {
+    "vite": "^7.3.1"
+  }
+}

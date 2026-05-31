@@ -61,6 +61,7 @@
     "oauth4webapi": "^3.8.6",
     "sflow": "^1.27.0",
     "tsa-composer": "^1.0.0",
+    "yaml": "^2.8.2",
     "yargs": "^17.7.2"
   },
   "devDependencies": {

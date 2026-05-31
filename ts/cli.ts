@@ -44,6 +44,15 @@ const originalCwd = process.cwd();
 {
   const rawArgs = hideBin(process.argv);
   const firstPositional = rawArgs.find((a) => !a.startsWith("-"));
+
+  // Rule-management subcommands (compose-style) talk to a running proxy's
+  // admin API; they never start a proxy themselves.
+  const { RULES_SUBCOMMANDS, runRulesCli } = await import("./rulesCli");
+  if (firstPositional && RULES_SUBCOMMANDS.has(firstPositional)) {
+    const code = await runRulesCli(rawArgs);
+    process.exit(code);
+  }
+
   const FOREGROUND_FLAGS = [
     "--dev",
     "--with-caddy",

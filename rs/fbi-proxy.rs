@@ -69,6 +69,16 @@ When `--domain` (or `FBI_PROXY_DOMAIN`) is set, only hosts ending with
 that suffix are accepted. The exact-domain host (e.g. `fbi.com`) serves
 the landing page.
 */
+/// Outcome of routing a request through the rule engine.
+enum RouteDecision {
+    /// Forward to `target` (upstream authority) with this outgoing `Host`.
+    Hit { target: String, host: String },
+    /// Serve the built-in landing page (apex domain, no matching rule).
+    Landing,
+    /// Reject with 502 (host not allowed / no matching rule).
+    Reject,
+}
+
 impl FBIProxy {
     pub fn new(domain_filter: Option<String>, compiled_routes: Vec<CompiledRoute>) -> Self {
         let mut http = HttpConnector::new();
@@ -221,34 +231,42 @@ npx fbi-proxy -d fbi.example.com  # Only accept *.fbi.example.com</pre>
     ///
     /// Returns None if the host is rejected (filter mismatch or no
     /// matching rule).
-    fn route(&self, host_header: &str) -> Option<(String, String)> {
+    fn route(&self, host_header: &str, req_path: &str) -> RouteDecision {
         // Drop port if present.
         let host_without_port = match host_header.find(':') {
             Some(i) => &host_header[..i],
             None => host_header,
         };
 
-        // Exact-domain match → serve landing page. Only relevant when a
-        // domain filter is configured.
-        if let Some(ref domain) = self.domain_filter {
-            if !domain.is_empty() && host_without_port.eq_ignore_ascii_case(domain) {
-                return Some(("@LANDING".to_string(), "@LANDING".to_string()));
-            }
-        }
+        // CONNECT and some clients carry an empty path — treat it as "/"
+        // so host-level rules (path "/" or path-less) still match. Path
+        // routing only applies to L7 requests we terminate ourselves.
+        let req_path = if req_path.is_empty() { "/" } else { req_path };
 
-        // Lock-free read of the live routes (may have been swapped by
-        // the file watcher mid-flight). `.load()` returns an Arc; we
-        // hold a reference for the duration of the match.
+        // Try the rules first (path-aware: longest matching prefix wins).
+        // Lock-free read of the live routes (may have been swapped by the
+        // watcher/admin API mid-flight). `.load()` returns an Arc held
+        // for the duration of the match.
         let routes_guard = self.compiled_routes.load();
-        let hit = routes::match_host_with_domain(
+        if let Some(hit) = routes::match_request(
             routes_guard.as_ref(),
             host_header,
+            req_path,
             self.domain_filter.as_deref(),
-        )?;
+        ) {
+            let RouteHit { target, host_header: rewrite, .. } = hit;
+            let new_host = rewrite.unwrap_or_else(|| Self::host_from_target(&target));
+            return RouteDecision::Hit { target, host: new_host };
+        }
 
-        let RouteHit { target, host_header: rewrite, .. } = hit;
-        let new_host = rewrite.unwrap_or_else(|| Self::host_from_target(&target));
-        Some((target, new_host))
+        // No rule matched. Serve the landing page for an exact-apex
+        // request when a domain filter is configured; otherwise reject.
+        if let Some(ref domain) = self.domain_filter {
+            if !domain.is_empty() && host_without_port.eq_ignore_ascii_case(domain) {
+                return RouteDecision::Landing;
+            }
+        }
+        RouteDecision::Reject
     }
 
     pub async fn handle_request(&self, req: Request<Incoming>) -> Result<Response<BoxBody>, BoxError> {
@@ -260,21 +278,22 @@ npx fbi-proxy -d fbi.example.com  # Only accept *.fbi.example.com</pre>
             .unwrap_or("localhost")
             .to_string();
 
-        // Route the host via the rule engine.
-        let parsed_host = self.route(&host_header);
-
-        // If domain filter rejects the host, return 502 Bad Gateway
-        let (target_host, new_host) = match parsed_host {
-            Some(hosts) => hosts,
-            None => {
+        // Route the host + path via the rule engine.
+        let req_path = req.uri().path().to_string();
+        let (target_host, new_host) = match self.route(&host_header, &req_path) {
+            RouteDecision::Hit { target, host } => (target, host),
+            RouteDecision::Landing => {
+                info!("GET {} => LANDING 200", host_header);
+                self.metrics.record_status(200);
+                return Ok(Response::builder()
+                    .status(StatusCode::OK)
+                    .header("Content-Type", "text/html; charset=utf-8")
+                    .body(Full::new(Bytes::from(Self::landing_page_html())).map_err(|e| match e {}).boxed())?);
+            }
+            RouteDecision::Reject => {
                 let method = req.method();
                 let uri = req.uri();
-                info!(
-                    "{} {} => REJECTED{} 502",
-                    method,
-                    host_header,
-                    uri
-                );
+                info!("{} {} => REJECTED{} 502", method, host_header, uri);
                 self.metrics.host_rejected_total.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 self.metrics.record_status(502);
                 return Ok(Response::builder()
@@ -282,16 +301,6 @@ npx fbi-proxy -d fbi.example.com  # Only accept *.fbi.example.com</pre>
                     .body(Full::new(Bytes::from("Bad Gateway: Host not allowed")).map_err(|e| match e {}).boxed())?);
             }
         };
-
-        // Serve landing page for root domain access
-        if target_host == "@LANDING" {
-            info!("GET {} => LANDING 200", host_header);
-            self.metrics.record_status(200);
-            return Ok(Response::builder()
-                .status(StatusCode::OK)
-                .header("Content-Type", "text/html; charset=utf-8")
-                .body(Full::new(Bytes::from(Self::landing_page_html())).map_err(|e| match e {}).boxed())?);
-        }
 
         let method = req.method().clone();
         let original_uri = req.uri().clone();
@@ -649,47 +658,220 @@ fn load_routes(yaml_src: &str, source_label: &str) -> Vec<CompiledRoute> {
     }
 }
 
-/// Run a tiny HTTP server on 127.0.0.1:{port} that responds to
-/// `GET /metrics` with the current counters in Prometheus text format.
-/// All other paths return 404. The endpoint binds loopback-only so
-/// metrics aren't exposed via the user-facing proxy port.
-async fn serve_metrics(
+/// Shared state for the loopback admin/control server.
+struct AdminState {
     metrics: Arc<Metrics>,
-    port: u16,
-) -> Result<(), BoxError> {
-    let addr: SocketAddr = format!("127.0.0.1:{}", port).parse()?;
-    let listener = TcpListener::bind(addr).await?;
-    info!("[metrics] listening on http://{}/metrics", addr);
-    println!("[metrics] listening on http://{}/metrics", addr);
+    routes_handle: Arc<ArcSwap<Vec<CompiledRoute>>>,
+    /// conf.d directory. `Some` enables the mutating `/rules` endpoints;
+    /// `None` (legacy `--routes` single-file mode) makes them 409.
+    conf_dir: Option<std::path::PathBuf>,
+}
 
+fn admin_text(status: StatusCode, content_type: &str, body: String) -> Response<BoxBody> {
+    Response::builder()
+        .status(status)
+        .header("Content-Type", content_type)
+        .body(Full::new(Bytes::from(body)).map_err(|e| match e {}).boxed())
+        .unwrap()
+}
+
+fn admin_json(status: StatusCode, body: String) -> Response<BoxBody> {
+    admin_text(status, "application/json", body)
+}
+
+fn admin_err(status: StatusCode, msg: &str) -> Response<BoxBody> {
+    admin_json(status, serde_json::json!({ "error": msg }).to_string())
+}
+
+/// A namespace must be a safe filename stem (it becomes `<ns>.yaml`).
+fn is_valid_namespace(ns: &str) -> bool {
+    !ns.is_empty()
+        && ns.len() <= 64
+        && ns.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+/// Serialize the live compiled routes to a JSON array for `GET /rules`.
+fn rules_to_json(routes: &[CompiledRoute]) -> String {
+    let arr: Vec<serde_json::Value> = routes
+        .iter()
+        .map(|r| {
+            serde_json::json!({
+                "namespace": r.namespace,
+                "name": r.name,
+                "match": r.match_pattern,
+                "path": r.path_prefix,
+                "target": r.target_template,
+                "headers": r.header_templates,
+            })
+        })
+        .collect();
+    serde_json::to_string(&arr).unwrap_or_else(|_| "[]".to_string())
+}
+
+async fn handle_admin(req: Request<Incoming>, state: Arc<AdminState>) -> Response<BoxBody> {
+    let method = req.method().clone();
+    let path = req.uri().path().to_string();
+
+    match (&method, path.as_str()) {
+        (&Method::GET, "/metrics") => {
+            admin_text(StatusCode::OK, "text/plain; version=0.0.4", state.metrics.render_prometheus())
+        }
+        (&Method::GET, "/rules") => {
+            let routes = state.routes_handle.load();
+            admin_json(StatusCode::OK, rules_to_json(routes.as_ref()))
+        }
+        (&Method::PUT, p) if p.starts_with("/rules/") => {
+            let ns = p.trim_start_matches("/rules/").to_string();
+            handle_put_rules(req, state, ns).await
+        }
+        (&Method::DELETE, p) if p.starts_with("/rules/") => {
+            let ns = p.trim_start_matches("/rules/").to_string();
+            handle_delete_rules(state, ns).await
+        }
+        _ => admin_err(StatusCode::NOT_FOUND, "not found"),
+    }
+}
+
+/// Reconcile namespace `ns` to the rules in the request body: validate +
+/// compile, write `<conf_dir>/<ns>.yaml`, then rebuild + atomically swap
+/// the live route set. Returns the new merged rule list on success.
+async fn handle_put_rules(
+    req: Request<Incoming>,
+    state: Arc<AdminState>,
+    ns: String,
+) -> Response<BoxBody> {
+    let conf_dir = match &state.conf_dir {
+        Some(d) => d.clone(),
+        None => {
+            return admin_err(
+                StatusCode::CONFLICT,
+                "rule mutation requires conf.d mode (started with --routes single-file mode)",
+            )
+        }
+    };
+    if !is_valid_namespace(&ns) {
+        return admin_err(
+            StatusCode::BAD_REQUEST,
+            "invalid namespace (allowed: A-Za-z0-9_-, max 64 chars)",
+        );
+    }
+
+    let body_bytes = match req.into_body().collect().await {
+        Ok(b) => b.to_bytes(),
+        Err(e) => return admin_err(StatusCode::BAD_REQUEST, &format!("read body: {}", e)),
+    };
+    let src = String::from_utf8_lossy(&body_bytes);
+    let parsed = match routes::parse_yaml(&src) {
+        Ok(p) => p,
+        Err(e) => return admin_err(StatusCode::BAD_REQUEST, &format!("parse: {}", e)),
+    };
+    // Validate by compiling under this namespace *before* touching disk.
+    if let Err(e) = routes::compile_in_namespace(parsed.routes.clone(), &ns) {
+        return admin_err(StatusCode::BAD_REQUEST, &format!("compile: {}", e));
+    }
+    let yaml = match serde_yaml::to_string(&parsed) {
+        Ok(y) => y,
+        Err(e) => return admin_err(StatusCode::INTERNAL_SERVER_ERROR, &format!("serialize: {}", e)),
+    };
+    let frag_path = conf_dir.join(format!("{}.yaml", ns));
+    if let Err(e) = std::fs::write(&frag_path, yaml) {
+        return admin_err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("write {}: {}", frag_path.display(), e),
+        );
+    }
+    match rebuild_routes(&conf_dir, BUNDLED_ROUTES_YAML) {
+        Ok(merged) => state.routes_handle.store(Arc::new(merged)),
+        Err(e) => {
+            return admin_err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("rebuild after write: {}", e),
+            )
+        }
+    }
+    info!("[admin] applied {} rule(s) to namespace '{}'", parsed.routes.len(), ns);
+    let routes = state.routes_handle.load();
+    admin_json(StatusCode::OK, rules_to_json(routes.as_ref()))
+}
+
+/// Remove namespace `ns`: delete its fragment, rebuild + swap.
+async fn handle_delete_rules(state: Arc<AdminState>, ns: String) -> Response<BoxBody> {
+    let conf_dir = match &state.conf_dir {
+        Some(d) => d.clone(),
+        None => {
+            return admin_err(
+                StatusCode::CONFLICT,
+                "rule mutation requires conf.d mode (started with --routes single-file mode)",
+            )
+        }
+    };
+    if !is_valid_namespace(&ns) {
+        return admin_err(
+            StatusCode::BAD_REQUEST,
+            "invalid namespace (allowed: A-Za-z0-9_-, max 64 chars)",
+        );
+    }
+    let frag_path = conf_dir.join(format!("{}.yaml", ns));
+    let existed = frag_path.exists();
+    if existed {
+        if let Err(e) = std::fs::remove_file(&frag_path) {
+            return admin_err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("remove {}: {}", frag_path.display(), e),
+            );
+        }
+    }
+    match rebuild_routes(&conf_dir, BUNDLED_ROUTES_YAML) {
+        Ok(merged) => state.routes_handle.store(Arc::new(merged)),
+        Err(e) => {
+            return admin_err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("rebuild after delete: {}", e),
+            )
+        }
+    }
+    info!("[admin] removed namespace '{}' (existed: {})", ns, existed);
+    admin_json(StatusCode::OK, serde_json::json!({ "ok": true, "removed": existed }).to_string())
+}
+
+/// Run the loopback admin/control server on an already-bound listener.
+/// Serves `GET /metrics`, `GET /rules`, `PUT /rules/{ns}`,
+/// `DELETE /rules/{ns}`. Binds loopback-only so it is never reachable
+/// from the user-facing proxy port.
+async fn serve_admin(state: Arc<AdminState>, listener: TcpListener) -> Result<(), BoxError> {
     loop {
         let (stream, _) = listener.accept().await?;
-        let metrics = Arc::clone(&metrics);
+        let state = Arc::clone(&state);
         let io = TokioIo::new(stream);
         tokio::spawn(async move {
             let service = service_fn(move |req: Request<Incoming>| {
-                let metrics = Arc::clone(&metrics);
-                async move {
-                    let resp = if req.uri().path() == "/metrics" {
-                        let body = metrics.render_prometheus();
-                        Response::builder()
-                            .status(StatusCode::OK)
-                            .header("Content-Type", "text/plain; version=0.0.4")
-                            .body(Full::new(Bytes::from(body)).map_err(|e| match e {}).boxed())
-                            .unwrap()
-                    } else {
-                        Response::builder()
-                            .status(StatusCode::NOT_FOUND)
-                            .body(Full::new(Bytes::from("not found")).map_err(|e| match e {}).boxed())
-                            .unwrap()
-                    };
-                    Ok::<_, Infallible>(resp)
-                }
+                let state = Arc::clone(&state);
+                async move { Ok::<_, Infallible>(handle_admin(req, state).await) }
             });
             if let Err(e) = http1::Builder::new().serve_connection(io, service).await {
-                error!("[metrics] connection error: {}", e);
+                error!("[admin] connection error: {}", e);
             }
         });
+    }
+}
+
+/// Publish `runtime.json` (next to conf.d) so `fbi-proxy up/down/ps` can
+/// discover the running daemon's admin port. Single-instance model:
+/// last writer wins.
+fn write_runtime_json(conf_dir: &std::path::Path, admin_port: u16, proxy_port: u16) {
+    let runtime_path = conf_dir
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."))
+        .join("runtime.json");
+    let body = serde_json::json!({
+        "adminPort": admin_port,
+        "proxyPort": proxy_port,
+        "pid": std::process::id(),
+        "confDir": conf_dir.to_string_lossy(),
+    });
+    match std::fs::write(&runtime_path, serde_json::to_string_pretty(&body).unwrap_or_default()) {
+        Ok(_) => info!("[admin] wrote {}", runtime_path.display()),
+        Err(e) => warn!("[admin] could not write {}: {}", runtime_path.display(), e),
     }
 }
 
@@ -783,6 +965,126 @@ fn spawn_routes_watcher(
     });
 }
 
+/// The conf.d directory holding per-namespace route fragments.
+/// `FBI_PROXY_CONF_DIR` overrides; default `~/.config/fbi-proxy/conf.d`.
+fn default_conf_dir() -> std::path::PathBuf {
+    if let Ok(d) = std::env::var("FBI_PROXY_CONF_DIR") {
+        if !d.is_empty() {
+            return std::path::PathBuf::from(d);
+        }
+    }
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    std::path::PathBuf::from(home).join(".config/fbi-proxy/conf.d")
+}
+
+/// Rebuild the merged compiled route set: bundled defaults (namespace
+/// `"default"`) followed by every `<conf_dir>/*.yaml` fragment (namespace
+/// = file stem), sorted by filename so ordering is deterministic.
+/// Returns Err with a human-readable message on any parse/compile error
+/// so callers can log + keep the previous rules instead of crashing.
+fn rebuild_routes(
+    conf_dir: &std::path::Path,
+    bundled_yaml: &str,
+) -> Result<Vec<CompiledRoute>, String> {
+    let parsed = routes::parse_yaml(bundled_yaml)
+        .map_err(|e| format!("parse bundled routes: {}", e))?;
+    let mut merged = routes::compile_in_namespace(parsed.routes, "default")
+        .map_err(|e| format!("compile bundled routes: {}", e))?;
+
+    if conf_dir.is_dir() {
+        let mut paths: Vec<std::path::PathBuf> = std::fs::read_dir(conf_dir)
+            .map_err(|e| format!("read {}: {}", conf_dir.display(), e))?
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| {
+                matches!(
+                    p.extension().and_then(|x| x.to_str()),
+                    Some("yaml") | Some("yml")
+                )
+            })
+            .collect();
+        paths.sort();
+        for path in paths {
+            let ns = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
+            let src = std::fs::read_to_string(&path)
+                .map_err(|e| format!("read {}: {}", path.display(), e))?;
+            let parsed = routes::parse_yaml(&src)
+                .map_err(|e| format!("parse {}: {}", path.display(), e))?;
+            let compiled = routes::compile_in_namespace(parsed.routes, &ns)
+                .map_err(|e| format!("compile {}: {}", path.display(), e))?;
+            merged.extend(compiled);
+        }
+    }
+    Ok(merged)
+}
+
+/// Watch the conf.d directory and atomically swap in the merged rule set
+/// on any change. Same debounce + fail-soft policy as the single-file
+/// watcher: a bad fragment logs a warning and leaves current rules in
+/// place. External edits and admin-API writes both converge here because
+/// disk is the source of truth.
+fn spawn_conf_dir_watcher(
+    conf_dir: std::path::PathBuf,
+    bundled_yaml: &'static str,
+    handle: Arc<ArcSwap<Vec<CompiledRoute>>>,
+) {
+    use notify::{RecursiveMode, Watcher};
+    use std::sync::mpsc;
+
+    std::thread::spawn(move || {
+        let (tx, rx) = mpsc::channel();
+        let mut watcher = match notify::recommended_watcher(move |res| {
+            let _ = tx.send(res);
+        }) {
+            Ok(w) => w,
+            Err(e) => {
+                error!("[routes hot-reload] failed to create watcher: {}", e);
+                return;
+            }
+        };
+
+        if let Err(e) = watcher.watch(&conf_dir, RecursiveMode::NonRecursive) {
+            error!(
+                "[routes hot-reload] failed to watch {}: {}",
+                conf_dir.display(),
+                e
+            );
+            return;
+        }
+        info!("[routes hot-reload] watching {}", conf_dir.display());
+
+        const DEBOUNCE: Duration = Duration::from_millis(150);
+        loop {
+            match rx.recv() {
+                Ok(Ok(_event)) => {}
+                Ok(Err(e)) => {
+                    warn!("[routes hot-reload] watcher error: {}", e);
+                    continue;
+                }
+                Err(_) => break,
+            }
+            while rx.recv_timeout(DEBOUNCE).is_ok() {}
+
+            match rebuild_routes(&conf_dir, bundled_yaml) {
+                Ok(new_routes) => {
+                    let n = new_routes.len();
+                    handle.store(Arc::new(new_routes));
+                    info!("[routes hot-reload] reloaded {} rule(s) from {}", n, conf_dir.display());
+                }
+                Err(reason) => {
+                    warn!(
+                        "[routes hot-reload] reload failed, keeping previous rules: {}",
+                        reason
+                    );
+                }
+            }
+        }
+    });
+}
+
 pub struct TlsOptions {
     /// Apex domain used for SAN entries on the self-signed cert.
     /// Empty string falls back to `localhost` + `127.0.0.1`.
@@ -799,36 +1101,59 @@ pub async fn start_proxy_server(
     domain_filter: Option<String>,
     compiled_routes: Vec<CompiledRoute>,
     watch_path: Option<String>,
+    conf_dir: Option<std::path::PathBuf>,
+    admin_port: Option<u16>,
     tls: Option<TlsOptions>,
 ) -> Result<(), BoxError> {
     let host = host.unwrap_or("127.0.0.1");
     let addr: SocketAddr = format!("{}:{}", host, port).parse()?;
     let proxy = Arc::new(FBIProxy::new(domain_filter.clone(), compiled_routes));
 
-    // Hot-reload: when the user pointed us at a routes file with
-    // --routes, spawn a background watcher that re-parses + swaps in
-    // new rules on file change. Failures leave the current rules in
-    // place — never crash the running proxy because of a typo in YAML.
-    if let Some(path) = watch_path {
+    // Hot-reload. In conf.d mode (the default) we watch the directory and
+    // re-merge bundled + all fragments on change. In legacy single-file
+    // mode (--routes <file>) we watch just that file. Failures leave the
+    // current rules in place — never crash on a typo in YAML.
+    if let Some(dir) = conf_dir.clone() {
+        spawn_conf_dir_watcher(dir, BUNDLED_ROUTES_YAML, proxy.routes_handle());
+    } else if let Some(path) = watch_path {
         spawn_routes_watcher(path, proxy.routes_handle());
     }
 
-    // Metrics: when FBI_PROXY_METRICS_PORT is set, expose a 127.0.0.1-bound
-    // Prometheus-text endpoint at /metrics on that port. Off by default —
-    // never exposed on the proxy's user-traffic port.
-    if let Ok(metrics_port_str) = std::env::var("FBI_PROXY_METRICS_PORT") {
-        if let Ok(metrics_port) = metrics_port_str.parse::<u16>() {
-            let metrics = proxy.metrics_handle();
-            tokio::spawn(async move {
-                if let Err(e) = serve_metrics(metrics, metrics_port).await {
-                    error!("[metrics] server exited: {}", e);
+    // Admin/control server: always on, loopback-only. Serves /metrics and
+    // (in conf.d mode) the /rules API. Binds an ephemeral port unless
+    // --admin-port / FBI_PROXY_ADMIN_PORT (or legacy FBI_PROXY_METRICS_PORT)
+    // pins one. The bound port is published to runtime.json so the CLI can
+    // find it.
+    {
+        let pinned = admin_port.or_else(|| {
+            std::env::var("FBI_PROXY_METRICS_PORT")
+                .ok()
+                .and_then(|s| s.parse::<u16>().ok())
+        });
+        let admin_addr = format!("127.0.0.1:{}", pinned.unwrap_or(0));
+        match TcpListener::bind(&admin_addr).await {
+            Ok(listener) => {
+                let bound = listener
+                    .local_addr()
+                    .map(|a| a.port())
+                    .unwrap_or_else(|_| pinned.unwrap_or(0));
+                info!("[admin] listening on http://127.0.0.1:{}", bound);
+                println!("[admin] control API on http://127.0.0.1:{}/ (/metrics, /rules)", bound);
+                if let Some(dir) = &conf_dir {
+                    write_runtime_json(dir, bound, port);
                 }
-            });
-        } else {
-            warn!(
-                "[metrics] FBI_PROXY_METRICS_PORT='{}' is not a valid port number; metrics disabled",
-                metrics_port_str
-            );
+                let state = Arc::new(AdminState {
+                    metrics: proxy.metrics_handle(),
+                    routes_handle: proxy.routes_handle(),
+                    conf_dir: conf_dir.clone(),
+                });
+                tokio::spawn(async move {
+                    if let Err(e) = serve_admin(state, listener).await {
+                        error!("[admin] server exited: {}", e);
+                    }
+                });
+            }
+            Err(e) => warn!("[admin] could not bind {}: {} — admin API disabled", admin_addr, e),
         }
     }
 
@@ -1033,6 +1358,22 @@ TRY RUN:
                 .env("FBI_PROXY_CERT_DIR")
                 .default_value("")
         )
+        .arg(
+            Arg::new("conf-dir")
+                .long("conf-dir")
+                .value_name("DIR")
+                .help("conf.d directory of per-namespace route fragments (env: FBI_PROXY_CONF_DIR, default: ~/.config/fbi-proxy/conf.d). Ignored when --routes is set.")
+                .env("FBI_PROXY_CONF_DIR")
+                .default_value("")
+        )
+        .arg(
+            Arg::new("admin-port")
+                .long("admin-port")
+                .value_name("PORT")
+                .help("Loopback admin/control port for /metrics and the /rules API (env: FBI_PROXY_ADMIN_PORT, default: ephemeral). FBI_PROXY_METRICS_PORT is accepted as an alias.")
+                .env("FBI_PROXY_ADMIN_PORT")
+                .default_value("")
+        )
         .get_matches();
 
     let tls_enabled = matches.get_flag("tls");
@@ -1069,12 +1410,13 @@ TRY RUN:
         Some(domain.clone())
     };
 
-    // Load routes: either from --routes <path> or the bundled default.
-    // The bundled YAML is baked into the binary and can't change at
-    // runtime, so hot reload only applies to the --routes path.
-    let (compiled_routes, watch_path) = if routes_path.is_empty() {
-        (load_routes(BUNDLED_ROUTES_YAML, "bundled routes.yaml"), None)
-    } else {
+    // Load routes. Two modes:
+    //   * --routes <file>  → legacy single-file mode (file fully replaces
+    //     the bundled defaults; hot-reload watches that one file).
+    //   * otherwise        → conf.d mode (default): merge bundled defaults
+    //     with every <conf_dir>/*.yaml fragment; the admin API + CLI
+    //     manage fragments at runtime, and the dir is hot-reloaded.
+    let (compiled_routes, watch_path, conf_dir) = if !routes_path.is_empty() {
         let src = match std::fs::read_to_string(routes_path) {
             Ok(s) => s,
             Err(e) => {
@@ -1085,8 +1427,35 @@ TRY RUN:
         (
             load_routes(&src, &format!("routes file '{}'", routes_path)),
             Some(routes_path.clone()),
+            None,
         )
+    } else {
+        let cli_conf_dir = matches.get_one::<String>("conf-dir").map(String::as_str).unwrap_or("");
+        let dir = if cli_conf_dir.is_empty() {
+            default_conf_dir()
+        } else {
+            std::path::PathBuf::from(cli_conf_dir)
+        };
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            eprintln!("warning: could not create conf dir '{}': {}", dir.display(), e);
+        }
+        let compiled = match rebuild_routes(&dir, BUNDLED_ROUTES_YAML) {
+            Ok(c) => c,
+            Err(reason) => {
+                eprintln!(
+                    "warning: failed to load conf.d ({}); falling back to bundled defaults",
+                    reason
+                );
+                load_routes(BUNDLED_ROUTES_YAML, "bundled routes.yaml")
+            }
+        };
+        (compiled, None, Some(dir))
     };
+
+    let admin_port = matches
+        .get_one::<String>("admin-port")
+        .filter(|s| !s.is_empty())
+        .and_then(|s| s.parse::<u16>().ok());
 
     let cert_dir_raw = matches.get_one::<String>("cert-dir").unwrap();
     let tls_opts = if tls_enabled {
@@ -1115,6 +1484,8 @@ TRY RUN:
             domain_filter,
             compiled_routes,
             watch_path,
+            conf_dir,
+            admin_port,
             tls_opts,
         )
         .await

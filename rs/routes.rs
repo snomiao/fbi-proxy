@@ -58,7 +58,7 @@
 //! capture for template expansion.
 
 use regex::Regex;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
 
@@ -112,23 +112,29 @@ pub struct Placeholder {
 }
 
 /// User-supplied route configuration (e.g. from `routes.yaml`).
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct RouteConfig {
     pub name: String,
     /// Pattern matched against the Host header (without port).
     /// E.g. `"{port:int}.{domain}"`.
     #[serde(rename = "match")]
     pub r#match: String,
+    /// Optional path-prefix matcher. When set, the rule only matches
+    /// requests whose path falls under this prefix; among host-matching
+    /// rules, the longest matching prefix wins. The path is forwarded
+    /// upstream as-is (never stripped).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
     /// Target template, e.g. `"127.0.0.1:{port}"`.
     pub target: String,
     /// Header templates. The special key `"Host"` (case-insensitive)
     /// is surfaced separately on `RouteHit::host_header`.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub headers: Option<HashMap<String, String>>,
 }
 
 /// Top-level shape of `routes.yaml`.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RoutesFile {
     #[serde(default = "default_version")]
     pub version: u32,
@@ -152,6 +158,15 @@ pub struct CompiledRoute {
     pub placeholders: Vec<Placeholder>,
     pub target_template: String,
     pub header_templates: HashMap<String, String>,
+    /// Original (uncompiled) `match` pattern, retained so the admin API
+    /// can report and round-trip the source rule.
+    pub match_pattern: String,
+    /// Normalized optional path prefix (e.g. `"/_vscode/"`). `None`
+    /// matches any path (lowest path priority).
+    pub path_prefix: Option<String>,
+    /// Namespace this route belongs to — the conf.d fragment stem, or
+    /// `"default"` for the bundled defaults. Used for `ps` grouping.
+    pub namespace: String,
 }
 
 /// Result of a successful match.
@@ -320,19 +335,40 @@ fn validate_name(route: &str, raw_spec: &str, name: &str) -> Result<(), CompileE
 // Compile
 // ---------------------------------------------------------------------------
 
-/// Compile a list of `RouteConfig`s into ready-to-use `CompiledRoute`s.
+/// Compile a list of `RouteConfig`s into ready-to-use `CompiledRoute`s
+/// under the `"default"` namespace.
 ///
 /// Returns the first error encountered.
 pub fn compile(routes: Vec<RouteConfig>) -> Result<Vec<CompiledRoute>, CompileError> {
+    compile_in_namespace(routes, "default")
+}
+
+/// Like [`compile`], but tags every produced route with `namespace`
+/// (the conf.d fragment stem). Used when merging multiple fragments.
+pub fn compile_in_namespace(
+    routes: Vec<RouteConfig>,
+    namespace: &str,
+) -> Result<Vec<CompiledRoute>, CompileError> {
     let mut out = Vec::with_capacity(routes.len());
     for r in routes {
-        out.push(compile_one(r)?);
+        out.push(compile_one(r, namespace)?);
     }
     Ok(out)
 }
 
-fn compile_one(cfg: RouteConfig) -> Result<CompiledRoute, CompileError> {
+/// Normalize a path prefix: guarantee a leading `/`. Trailing slash is
+/// left as the author wrote it (it affects boundary matching).
+fn normalize_path_prefix(p: &str) -> String {
+    if p.starts_with('/') {
+        p.to_string()
+    } else {
+        format!("/{}", p)
+    }
+}
+
+fn compile_one(cfg: RouteConfig, namespace: &str) -> Result<CompiledRoute, CompileError> {
     let route_name = cfg.name.clone();
+    let match_pattern = cfg.r#match.clone();
     let tokens = tokenize(&cfg.r#match, &route_name, "match pattern")?;
 
     let mut declared: Vec<Placeholder> = Vec::new();
@@ -420,12 +456,17 @@ fn compile_one(cfg: RouteConfig) -> Result<CompiledRoute, CompileError> {
         }
     }
 
+    let path_prefix = cfg.path.as_deref().map(normalize_path_prefix);
+
     Ok(CompiledRoute {
         name: route_name,
         pattern,
         placeholders: declared,
         target_template: cfg.target,
         header_templates,
+        match_pattern,
+        path_prefix,
+        namespace: namespace.to_string(),
     })
 }
 
@@ -486,6 +527,20 @@ fn expand(template: &str, captures: &HashMap<String, String>) -> String {
     out
 }
 
+/// Does `req_path` fall under `prefix`? `prefix` is normalized (leading
+/// `/`). Boundary-aware: `"/_vscode/"` matches `/_vscode` and
+/// `/_vscode/...` but NOT `/_vscodex`.
+fn path_matches(prefix: &str, req_path: &str) -> bool {
+    if prefix == "/" {
+        return true;
+    }
+    if let Some(stripped) = prefix.strip_suffix('/') {
+        req_path == stripped || req_path.starts_with(prefix)
+    } else {
+        req_path == prefix || req_path.starts_with(&format!("{}/", prefix))
+    }
+}
+
 /// Try to match a host against the compiled routes. Returns the first
 /// match (top-to-bottom order in the config).
 pub fn match_host(routes: &[CompiledRoute], host: &str) -> Option<RouteHit> {
@@ -505,6 +560,23 @@ pub fn match_host_with_domain(
     host: &str,
     default_domain: Option<&str>,
 ) -> Option<RouteHit> {
+    match_request(routes, host, "/", default_domain)
+}
+
+/// Match a host **and** request path against the compiled routes.
+///
+/// Among all routes whose host pattern matches (and whose `path_prefix`
+/// matches `req_path`, if any), the one with the **longest matching path
+/// prefix** wins; ties are broken by declaration order (earliest wins).
+/// A route with no `path_prefix` has the lowest path priority, so an
+/// explicit `path: /` rule still beats a path-less rule for the same
+/// host.
+pub fn match_request(
+    routes: &[CompiledRoute],
+    host: &str,
+    req_path: &str,
+    default_domain: Option<&str>,
+) -> Option<RouteHit> {
     let host = normalize(host);
 
     if let Some(domain) = default_domain {
@@ -516,37 +588,59 @@ pub fn match_host_with_domain(
         }
     }
 
-    for route in routes {
-        if let Some(caps) = route.pattern.captures(&host) {
-            let mut values: HashMap<String, String> = HashMap::new();
-            for p in &route.placeholders {
-                if let Some(m) = caps.name(&p.name) {
-                    values.insert(p.name.clone(), m.as_str().to_string());
+    // Select the best candidate by path-prefix length. `priority` is the
+    // prefix byte length, or 0 for a path-less route. We require a
+    // strictly-greater priority to replace the current best, so the
+    // earliest declaration wins on ties.
+    let mut best_idx: Option<usize> = None;
+    let mut best_priority: i64 = -1;
+    for (i, route) in routes.iter().enumerate() {
+        if !route.pattern.is_match(&host) {
+            continue;
+        }
+        let priority: i64 = match &route.path_prefix {
+            None => 0,
+            Some(prefix) => {
+                if !path_matches(prefix, req_path) {
+                    continue;
                 }
+                prefix.len() as i64
             }
-
-            let target = expand(&route.target_template, &values);
-
-            let mut host_header: Option<String> = None;
-            let mut other_headers: HashMap<String, String> = HashMap::new();
-            for (k, tmpl) in &route.header_templates {
-                let v = expand(tmpl, &values);
-                if k.eq_ignore_ascii_case("host") {
-                    host_header = Some(v);
-                } else {
-                    other_headers.insert(k.clone(), v);
-                }
-            }
-
-            return Some(RouteHit {
-                route_name: route.name.clone(),
-                target,
-                host_header,
-                other_headers,
-            });
+        };
+        if priority > best_priority {
+            best_priority = priority;
+            best_idx = Some(i);
         }
     }
-    None
+
+    let route = routes.get(best_idx?)?;
+    let caps = route.pattern.captures(&host)?;
+    let mut values: HashMap<String, String> = HashMap::new();
+    for p in &route.placeholders {
+        if let Some(m) = caps.name(&p.name) {
+            values.insert(p.name.clone(), m.as_str().to_string());
+        }
+    }
+
+    let target = expand(&route.target_template, &values);
+
+    let mut host_header: Option<String> = None;
+    let mut other_headers: HashMap<String, String> = HashMap::new();
+    for (k, tmpl) in &route.header_templates {
+        let v = expand(tmpl, &values);
+        if k.eq_ignore_ascii_case("host") {
+            host_header = Some(v);
+        } else {
+            other_headers.insert(k.clone(), v);
+        }
+    }
+
+    Some(RouteHit {
+        route_name: route.name.clone(),
+        target,
+        host_header,
+        other_headers,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -562,12 +656,14 @@ mod tests {
             RouteConfig {
                 name: "port-as-host".into(),
                 r#match: "{port:int}.{domain}".into(),
+                path: None,
                 target: "127.0.0.1:{port}".into(),
                 headers: None,
             },
             RouteConfig {
                 name: "host-double-dash-port".into(),
                 r#match: "{host}--{port:int}.{domain}".into(),
+                path: None,
                 target: "{host}:{port}".into(),
                 headers: Some({
                     let mut h = HashMap::new();
@@ -578,6 +674,7 @@ mod tests {
             RouteConfig {
                 name: "subdomain-hoisting".into(),
                 r#match: "{prefix}.{host}.{domain}".into(),
+                path: None,
                 target: "{host}:80".into(),
                 headers: Some({
                     let mut h = HashMap::new();
@@ -588,6 +685,7 @@ mod tests {
             RouteConfig {
                 name: "direct-forward".into(),
                 r#match: "{host}.{domain}".into(),
+                path: None,
                 target: "{host}:80".into(),
                 headers: Some({
                     let mut h = HashMap::new();
@@ -719,12 +817,14 @@ mod tests {
             RouteConfig {
                 name: "first".into(),
                 r#match: "{x}.{y}".into(),
+                path: None,
                 target: "first-target".into(),
                 headers: None,
             },
             RouteConfig {
                 name: "second".into(),
                 r#match: "{x}.{y}".into(),
+                path: None,
                 target: "second-target".into(),
                 headers: None,
             },
@@ -740,6 +840,7 @@ mod tests {
         let err = compile(vec![RouteConfig {
             name: "bad".into(),
             r#match: "{port:zzz}.com".into(),
+            path: None,
             target: "x".into(),
             headers: None,
         }])
@@ -755,6 +856,7 @@ mod tests {
         let err = compile(vec![RouteConfig {
             name: "bad".into(),
             r#match: "{port".into(),
+            path: None,
             target: "x".into(),
             headers: None,
         }])
@@ -772,6 +874,7 @@ mod tests {
         let err = compile(vec![RouteConfig {
             name: "bad".into(),
             r#match: "{x}.{x}".into(),
+            path: None,
             target: "y".into(),
             headers: None,
         }])
@@ -787,6 +890,7 @@ mod tests {
         let err = compile(vec![RouteConfig {
             name: "bad".into(),
             r#match: "{x}.{y}".into(),
+            path: None,
             target: "{z}".into(),
             headers: None,
         }])
@@ -805,6 +909,7 @@ mod tests {
         let err = compile(vec![RouteConfig {
             name: "bad".into(),
             r#match: "{1foo}".into(),
+            path: None,
             target: "x".into(),
             headers: None,
         }])
@@ -849,6 +954,7 @@ mod tests {
         let routes = compile(vec![RouteConfig {
             name: "direct".into(),
             r#match: "{host}.{domain}".into(),
+            path: None,
             target: "{host}:80".into(),
             headers: None,
         }])
@@ -864,6 +970,7 @@ mod tests {
         let routes = compile(vec![RouteConfig {
             name: "direct".into(),
             r#match: "{host}.{domain}".into(),
+            path: None,
             target: "{host}:80".into(),
             headers: None,
         }])
@@ -877,6 +984,7 @@ mod tests {
         let routes = compile(vec![RouteConfig {
             name: "dns-passthrough".into(),
             r#match: "{upstream:multi}.fbi.com".into(),
+            path: None,
             target: "{upstream}:80".into(),
             headers: None,
         }])
@@ -898,6 +1006,7 @@ mod tests {
         let routes = compile(vec![RouteConfig {
             name: "dns-with-host".into(),
             r#match: "{upstream:multi}.fbi.com".into(),
+            path: None,
             target: "{upstream}:443".into(),
             headers: Some(HashMap::from([("Host".into(), "{upstream}".into())])),
         }])
@@ -926,6 +1035,7 @@ routes:
         let routes = compile(vec![RouteConfig {
             name: "slugged".into(),
             r#match: "{name:slug}.example".into(),
+            path: None,
             target: "{name}".into(),
             headers: None,
         }])
@@ -972,5 +1082,90 @@ routes:
         let mut caps = HashMap::new();
         caps.insert("a".to_string(), "X".to_string());
         assert_eq!(expand("{a}-{b}", &caps), "X-");
+    }
+
+    // ----- path-prefix matching (web-code use case) -----
+
+    fn web_code_routes() -> Vec<CompiledRoute> {
+        compile_in_namespace(
+            vec![
+                RouteConfig {
+                    name: "root".into(),
+                    r#match: "fbi.com".into(),
+                    path: Some("/".into()),
+                    target: "localhost:3001".into(),
+                    headers: None,
+                },
+                RouteConfig {
+                    name: "vscode".into(),
+                    r#match: "fbi.com".into(),
+                    path: Some("/_vscode/".into()),
+                    target: "localhost:9999".into(),
+                    headers: None,
+                },
+            ],
+            "web-code",
+        )
+        .expect("compile web-code routes")
+    }
+
+    #[test]
+    fn path_prefix_longest_wins() {
+        let routes = web_code_routes();
+        let hit = match_request(&routes, "fbi.com", "/_vscode/", Some("fbi.com")).unwrap();
+        assert_eq!(hit.target, "localhost:9999");
+        let hit = match_request(&routes, "fbi.com", "/_vscode/stable/x.js", Some("fbi.com")).unwrap();
+        assert_eq!(hit.target, "localhost:9999");
+        let hit = match_request(&routes, "fbi.com", "/", Some("fbi.com")).unwrap();
+        assert_eq!(hit.target, "localhost:3001");
+        let hit = match_request(&routes, "fbi.com", "/snomiao/repo/tree/main", Some("fbi.com")).unwrap();
+        assert_eq!(hit.target, "localhost:3001");
+    }
+
+    #[test]
+    fn path_prefix_boundary_not_substring() {
+        let routes = web_code_routes();
+        let hit = match_request(&routes, "fbi.com", "/_vscodex", Some("fbi.com")).unwrap();
+        assert_eq!(hit.target, "localhost:3001");
+        let hit = match_request(&routes, "fbi.com", "/_vscode", Some("fbi.com")).unwrap();
+        assert_eq!(hit.target, "localhost:9999");
+    }
+
+    #[test]
+    fn explicit_root_path_beats_pathless() {
+        let routes = compile(vec![
+            RouteConfig {
+                name: "pathless".into(),
+                r#match: "fbi.com".into(),
+                path: None,
+                target: "localhost:1".into(),
+                headers: None,
+            },
+            RouteConfig {
+                name: "rooted".into(),
+                r#match: "fbi.com".into(),
+                path: Some("/".into()),
+                target: "localhost:2".into(),
+                headers: None,
+            },
+        ])
+        .unwrap();
+        let hit = match_request(&routes, "fbi.com", "/anything", None).unwrap();
+        assert_eq!(hit.target, "localhost:2");
+    }
+
+    #[test]
+    fn namespace_is_tagged_on_compiled_route() {
+        let routes = web_code_routes();
+        assert!(routes.iter().all(|r| r.namespace == "web-code"));
+        let bundled = compile(vec![RouteConfig {
+            name: "x".into(),
+            r#match: "{host}".into(),
+            path: None,
+            target: "{host}:80".into(),
+            headers: None,
+        }])
+        .unwrap();
+        assert_eq!(bundled[0].namespace, "default");
     }
 }

@@ -1,0 +1,20 @@
+# web-code: serve a VS Code web instance and a thin shell under ONE origin.
+#
+#   https://fbi.com/                      -> vite shell (this app, :3001)
+#   https://fbi.com/_vscode/...           -> `code serve-web` (:9999)
+#
+# Same origin means the shell can embed VS Code in an <iframe> with no
+# cross-origin restrictions. Longest-prefix wins, so `/_vscode/` beats `/`.
+#
+# Apply with:   fbi-proxy up      (from this directory)
+# Remove with:  fbi-proxy down
+name: web-code
+routes:
+  - name: vscode
+    match: fbi.com
+    path: /_vscode/
+    target: localhost:9999
+  - name: root
+    match: fbi.com
+    path: /
+    target: localhost:3001

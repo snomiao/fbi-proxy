@@ -28,6 +28,12 @@ export type RouteConfig = {
    */
   match: string;
   /**
+   * Optional path-prefix matcher. When set, the rule only matches
+   * requests whose path falls under this prefix; among host-matching
+   * rules the longest matching prefix wins. Forwarded upstream as-is.
+   */
+  path?: string;
+  /**
    * Target template. Expanded with placeholder captures from `match`.
    * E.g. `"127.0.0.1:{port}"`.
    */
@@ -43,6 +49,15 @@ export type RouteConfig = {
 /** Top-level shape of `routes.yaml`. */
 export type RoutesFile = {
   version: 1;
+  routes: RouteConfig[];
+};
+
+/**
+ * Compose-style per-project config (`fbi-proxy.yaml`). The top-level
+ * `name` is the namespace (defaults to the directory name when omitted).
+ */
+export type ComposeFile = {
+  name?: string;
   routes: RouteConfig[];
 };
 
@@ -108,14 +123,46 @@ export function parseRoutesYaml(yaml: string): RoutesFile {
         headers[hk] = hv;
       }
     }
+    let path: string | undefined;
+    if (e.path != null) {
+      if (typeof e.path !== "string") {
+        throw new Error(
+          `routes.yaml: entry '${e.name}': \`path\` must be a string`,
+        );
+      }
+      path = e.path;
+    }
     routes.push({
       name: e.name,
       match: e.match,
+      ...(path != null ? { path } : {}),
       target: e.target,
       headers,
     });
   }
   return { version: 1, routes };
+}
+
+/**
+ * Parse a compose-style `fbi-proxy.yaml`. Reuses the route validation in
+ * `parseRoutesYaml`. Returns the namespace (`name`, possibly undefined)
+ * and the parsed routes.
+ */
+export function parseComposeYaml(yaml: string): ComposeFile {
+  const raw = YAML.parse(yaml);
+  if (raw == null || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("fbi-proxy.yaml must be a YAML mapping at the top level");
+  }
+  const obj = raw as Record<string, unknown>;
+  if (obj.name != null && typeof obj.name !== "string") {
+    throw new Error("fbi-proxy.yaml: `name` must be a string");
+  }
+  // parseRoutesYaml validates the `routes` list + each entry; version is
+  // optional in a compose file so default it in.
+  const { routes } = parseRoutesYaml(
+    YAML.stringify({ version: 1, routes: obj.routes ?? [] }),
+  );
+  return { name: obj.name as string | undefined, routes };
 }
 
 const PLACEHOLDER_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -163,6 +210,9 @@ export function validateRoute(r: RouteConfig): ValidationResult {
   if (!r.name) return { valid: false, reason: "route name is required" };
   if (!r.match) return { valid: false, reason: "route `match` is required" };
   if (!r.target) return { valid: false, reason: "route `target` is required" };
+
+  if (r.path != null && !r.path.startsWith("/"))
+    return { valid: false, reason: "route `path` must start with '/'" };
 
   if (!bracesBalanced(r.match))
     return { valid: false, reason: "unbalanced braces in `match`" };
