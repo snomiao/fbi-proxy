@@ -126,3 +126,67 @@ export function watchStatus(
   };
   return () => es.close();
 }
+
+// --- Multiplexed live status via a single shared WebSocket -----------------
+// All tabs of this origin share ONE SharedWorker holding ONE WebSocket
+// (/api/watch-ws). It multiplexes every repo subscription, so opening 10+
+// tabs costs one connection total (not one per tab) and keeps the tab title
+// live while backgrounded. Falls back to per-tab SSE where SharedWorker is
+// unavailable.
+
+let sharedPort: MessagePort | null | undefined;
+const liveHandlers = new Map<string, Set<(g: GitStatus) => void>>();
+
+function ensureWorkerPort(): MessagePort | null {
+  if (sharedPort !== undefined) return sharedPort;
+  if (typeof SharedWorker === "undefined") return (sharedPort = null);
+  try {
+    const worker = new SharedWorker(
+      new URL("./status-worker.ts", import.meta.url),
+      { type: "module" },
+    );
+    const port = worker.port;
+    port.onmessage = (e: MessageEvent) => {
+      const { rel, status } = (e.data ?? {}) as {
+        rel?: string;
+        status?: GitStatus;
+      };
+      if (rel && status) liveHandlers.get(rel)?.forEach((cb) => cb(status));
+    };
+    port.start();
+    // Release this tab's subscriptions in the worker when the tab goes away.
+    addEventListener("pagehide", () => port.postMessage({ type: "close" }));
+    return (sharedPort = port);
+  } catch {
+    return (sharedPort = null);
+  }
+}
+
+/**
+ * Live git status for `rel`, multiplexed over the shared worker's single
+ * WebSocket (or per-tab SSE as a fallback). Calls `onStatus` with each pushed
+ * `GitStatus`. Returns an unsubscribe fn.
+ */
+export function watchStatusLive(
+  rel: string,
+  onStatus: (git: GitStatus) => void,
+): () => void {
+  const port = ensureWorkerPort();
+  if (!port) return watchStatus(rel, onStatus); // SSE fallback
+
+  let set = liveHandlers.get(rel);
+  if (!set) {
+    set = new Set();
+    liveHandlers.set(rel, set);
+  }
+  set.add(onStatus);
+  port.postMessage({ type: "sub", rel });
+
+  return () => {
+    set!.delete(onStatus);
+    if (set!.size === 0) {
+      liveHandlers.delete(rel);
+      port.postMessage({ type: "unsub", rel });
+    }
+  };
+}

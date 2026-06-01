@@ -158,40 +158,101 @@ export async function statusOf(spec: RepoSpec): Promise<GitStatus | null> {
 }
 
 /**
- * Watch a worktree and call `onChange` with fresh git status whenever the
- * working tree or index may have changed — for live dirty/ahead/behind in the
- * UI without polling. Recursive native watch via @parcel/watcher (FSEvents /
- * inotify / ReadDirectoryChangesW). node_modules and `.git/objects` churn are
- * ignored (but `.git/index` & `.git/HEAD` are watched, so stage/commit/
- * checkout transitions are caught); bursts are debounced before the (fast)
- * `git status`. Returns an unsubscribe fn. Best-effort: errors are swallowed.
+ * One shared native watcher per worktree, fanned out to many subscribers.
+ * Recursive watch over a large tree (and the `git status` it triggers) is
+ * expensive, so N browser tabs on the same repo must NOT each spin one up —
+ * that starves the single-threaded dev server. We keep a per-folder registry:
+ * the first subscriber creates the watcher, the last to leave tears it down,
+ * and every change recomputes status once and broadcasts it.
+ */
+type WatchEntry = {
+  subscribers: Set<(s: GitStatus) => void>;
+  last?: GitStatus;
+  teardown: () => Promise<void>;
+};
+const watches = new Map<string, WatchEntry>();
+
+/**
+ * Subscribe to live git status for `spec`'s worktree. `onChange` fires with a
+ * fresh `GitStatus` whenever the working tree or index may have changed (and
+ * immediately with the last-known status, if any). Native recursive watch via
+ * @parcel/watcher (FSEvents / inotify / ReadDirectoryChangesW); node_modules
+ * and `.git/objects` churn are ignored, but `.git/index` & `.git/HEAD` are
+ * watched so stage/commit/checkout transitions are caught; bursts are
+ * debounced before the (fast) `git status`. Returns an unsubscribe fn; the
+ * underlying watcher is shared and only torn down when the last subscriber
+ * leaves. Best-effort: errors are swallowed.
  */
 export async function watchStatus(
   spec: RepoSpec,
   onChange: (status: GitStatus) => void,
 ): Promise<() => Promise<void>> {
   const folder = folderFor(spec);
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  const schedule = () => {
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(async () => {
-      try {
-        onChange(await readStatus(folder));
-      } catch {
-        // worktree vanished mid-watch, or a transient git lock — ignore
-      }
-    }, 300);
-  };
-  const sub = await watcher.subscribe(
-    folder,
-    (err) => {
-      if (!err) schedule();
-    },
-    { ignore: ["**/node_modules/**", "**/.git/objects/**", "**/.git/lfs/**"] },
-  );
+  let entry = watches.get(folder);
+
+  if (!entry) {
+    // Register synchronously (before the async subscribe) so a second
+    // concurrent caller joins this entry instead of creating a rival watcher.
+    const subscribers = new Set<(s: GitStatus) => void>();
+    entry = { subscribers, teardown: async () => {} };
+    watches.set(folder, entry);
+
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let lastKey = "";
+    const schedule = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(async () => {
+        try {
+          const status = await readStatus(folder);
+          // Only broadcast on a real change — editors (VS Code has this very
+          // folder open) churn files constantly, but the git status rarely
+          // moves. Dedup keeps the socket and every tab quiet until it does.
+          const key = JSON.stringify(status);
+          if (key === lastKey) return;
+          lastKey = key;
+          entry!.last = status;
+          for (const cb of subscribers) cb(status);
+        } catch {
+          // worktree vanished mid-watch, or a transient git lock — ignore
+        }
+      }, 300);
+    };
+    try {
+      const sub = await watcher.subscribe(
+        folder,
+        (err) => {
+          if (!err) schedule();
+        },
+        {
+          ignore: [
+            "**/node_modules/**",
+            "**/.git/objects/**",
+            "**/.git/lfs/**",
+          ],
+        },
+      );
+      entry.teardown = async () => {
+        if (timer) clearTimeout(timer);
+        await sub.unsubscribe();
+      };
+    } catch {
+      // watcher unavailable — drop the entry so a later call can retry
+      watches.delete(folder);
+      throw new Error("watch unavailable");
+    }
+  }
+
+  entry.subscribers.add(onChange);
+  if (entry.last) onChange(entry.last); // hand the newcomer current state at once
+
   return async () => {
-    if (timer) clearTimeout(timer);
-    await sub.unsubscribe();
+    const e = watches.get(folder);
+    if (!e) return;
+    e.subscribers.delete(onChange);
+    if (e.subscribers.size === 0) {
+      watches.delete(folder);
+      await e.teardown();
+    }
   };
 }
 
@@ -213,6 +274,28 @@ async function runRepoSetup(dir: string): Promise<void> {
     });
   } catch {
     // best-effort
+  }
+}
+
+/**
+ * Fire-and-forget remote refresh for an existing worktree: `git fetch`, then
+ * `git pull --ff-only` if it's safe (clean, behind, not ahead), then re-run
+ * setup if the checkout actually advanced. Runs detached from the request so a
+ * slow fetch never blocks the editor opening; the file watcher broadcasts any
+ * resulting status change to the live UI. Best-effort — errors are swallowed.
+ */
+async function refreshInBackground(folder: string): Promise<void> {
+  try {
+    await git(folder, ["fetch", "--prune", "origin"]);
+    const st = await readStatus(folder);
+    if (st.hasUpstream && !st.dirty && st.behind > 0 && st.ahead === 0) {
+      const before = st.head;
+      await git(folder, ["pull", "--ff-only"]);
+      const after = await readStatus(folder);
+      if (after.head !== before) await runRepoSetup(folder);
+    }
+  } catch {
+    // network/auth/lock hiccup — leave the worktree as-is
   }
 }
 
@@ -279,25 +362,15 @@ export async function provision(spec: RepoSpec): Promise<ProvisionResult> {
       return { ...base, ok: true, action: "cloned", git: git2 };
     }
 
-    // Present: fetch, then pull --ff-only only if safe.
-    await git(folder, ["fetch", "--prune", "origin"]);
-    const st = await readStatus(folder);
-    let action: ProvisionResult["action"] = "fetched";
-    if (st.hasUpstream && !st.dirty && st.behind > 0 && st.ahead === 0) {
-      await git(folder, ["pull", "--ff-only"]);
-      action = "pulled";
-    }
+    // Present: return the current local status immediately, then refresh from
+    // the remote in the BACKGROUND. A `git fetch` on a large, actively-pushed
+    // repo can be slow, and blocking the response on it stalls the editor
+    // opening (and trips the proxy's upstream timeout → 502). The watcher
+    // pushes any pull-induced changes live, so the UI still converges.
     await seedEnvLocal(spec, folder);
-    if (action === "pulled") {
-      // The checkout advanced — re-run full setup (submodule pointers and
-      // dependency lockfiles may have changed). When nothing was pulled we
-      // do NO submodule/install work: those only change with the checkout,
-      // and running them on every page open makes opens crawl for repos
-      // with many submodules.
-      await runRepoSetup(folder);
-    }
-    const after = await readStatus(folder);
-    return { ...base, ok: true, action, git: after };
+    const current = await readStatus(folder);
+    void refreshInBackground(folder);
+    return { ...base, ok: true, action: "fetched", git: current };
   } catch (e: unknown) {
     const err = e as { stderr?: string; message?: string };
     const error = (err.stderr || err.message || String(e)).trim().slice(0, 600);

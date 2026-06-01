@@ -16,7 +16,7 @@ import {
   createBranchFromLocation,
   provisionFromLocation,
   statusNote,
-  watchStatus,
+  watchStatusLive,
   type Config,
   type GitStatus,
 } from "./provision-client";
@@ -123,23 +123,34 @@ async function main() {
 }
 
 /**
- * Tab title: `<branch>@<repo>\<owner> - web-code`, prefixed with `! ` when the
- * worktree has uncommitted changes — a dirty flag visible at a glance across
- * many tabs. `rel` is `<owner>/<repo>/tree/<branch>` (branch may have slashes).
+ * Tab title: `[!] [↓behind] [↑ahead] <branch>@<repo>\<owner> - web-code`.
+ * A status glance across many tabs: `!` = uncommitted changes, then VS
+ * Code-style sync counts — `↓N` commits behind upstream, `↑N` ahead. Each
+ * part shows only when non-zero (ahead/behind need a tracked upstream).
+ * `rel` is `<owner>/<repo>/tree/<branch>` (branch may contain slashes).
  */
 function setTitle(rel: string, git?: GitStatus) {
   const [ownerRepo, branch = rel] = rel.split("/tree/");
   const [owner = "", repo = ""] = (ownerRepo ?? "").split("/");
-  const dirty = git?.dirty ? "! " : "";
-  document.title = `${dirty}${branch}@${repo}\\${owner} - web-code`;
+  const flags = [
+    git?.dirty ? "!" : "",
+    git && git.behind > 0 ? `↓${git.behind}` : "",
+    git && git.ahead > 0 ? `↑${git.ahead}` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const prefix = flags ? `${flags} ` : "";
+  document.title = `${prefix}${branch}@${repo}\\${owner} - web-code`;
 }
 
 /**
- * Keep the title's dirty flag live: subscribe to the worktree's git status
- * over SSE and re-render the title on every change (file edit, stage, commit).
+ * Keep the title's flags live: subscribe to the worktree's git status (over
+ * the shared-worker WebSocket, multiplexed across all tabs) and re-render the
+ * title on every change — file edit, stage, commit, fetch. Works while the tab
+ * is backgrounded, so the title acts as a Slack-style at-a-glance indicator.
  */
 function liveTitle(rel: string) {
-  watchStatus(rel, (git) => setTitle(rel, git));
+  watchStatusLive(rel, (git) => setTitle(rel, git));
 }
 
 /**
@@ -164,7 +175,11 @@ function offerOpenAnyway(
   );
   msg
     .querySelector<HTMLButtonElement>("#open-anyway")
-    ?.addEventListener("click", () => openVscode(frame, msg, folder));
+    ?.addEventListener("click", () => {
+      setTitle(rel);
+      liveTitle(rel);
+      openVscode(frame, msg, folder);
+    });
 }
 
 /** Render a "Create branch" affordance and wire it to the create API. */

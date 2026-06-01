@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { WebSocketServer, type WebSocket } from "ws";
 import {
   createBranch,
   folderFor,
@@ -44,6 +45,60 @@ export default defineConfig({
     {
       name: "web-code-shell",
       configureServer(server) {
+        // Multiplexed git-status WebSocket at /api/watch-ws. One socket (held
+        // by a client SharedWorker, shared across all tabs) carries many repo
+        // subscriptions: {type:'sub'|'unsub', rel}. The server pushes
+        // {rel, status} on every change. Watchers are server-side-deduped per
+        // worktree (see provision.watchStatus), so 10+ tabs cost one watcher
+        // per distinct repo and a single connection total. This sidesteps the
+        // HTTP/1.1 ~6-connections-per-origin cap that long-lived SSE hits.
+        const wss = new WebSocketServer({ noServer: true });
+        server.httpServer?.on("upgrade", (req, socket, head) => {
+          const { pathname } = new URL(req.url ?? "", "http://localhost");
+          if (pathname !== "/api/watch-ws") return; // leave vite HMR upgrades alone
+          wss.handleUpgrade(req, socket, head, (ws) => handleWatchSocket(ws));
+        });
+
+        async function handleWatchSocket(ws: WebSocket) {
+          const subs = new Map<string, () => Promise<void>>(); // rel -> unsubscribe
+          ws.on("message", async (data) => {
+            let m: { type?: string; rel?: string };
+            try {
+              m = JSON.parse(data.toString());
+            } catch {
+              return;
+            }
+            const rel = String(m.rel ?? "");
+            const spec = parseSpec(rel);
+            if (!spec) return;
+            if (m.type === "sub") {
+              if (subs.has(rel)) return;
+              const send = (status: unknown) => {
+                if (ws.readyState === ws.OPEN)
+                  ws.send(JSON.stringify({ rel, status }));
+              };
+              const initial = await statusOf(spec);
+              if (initial) send(initial);
+              try {
+                subs.set(rel, await watchStatus(spec, send));
+              } catch {
+                // worktree not provisioned / watcher unavailable — initial
+                // snapshot (if any) already sent; no live updates.
+              }
+            } else if (m.type === "unsub") {
+              const unsub = subs.get(rel);
+              subs.delete(rel);
+              await unsub?.();
+            }
+          });
+          const cleanup = async () => {
+            for (const unsub of subs.values()) await unsub();
+            subs.clear();
+          };
+          ws.on("close", cleanup);
+          ws.on("error", cleanup);
+        }
+
         server.middlewares.use("/__config", (_req, res) => {
           res.setHeader("Content-Type", "application/json");
           // `wsRoot` is the absolute path to the workspace root, joined
