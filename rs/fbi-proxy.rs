@@ -1023,16 +1023,26 @@ fn spawn_routes_watcher(
     });
 }
 
+/// Resolve the user's home directory cross-platform: `HOME` on Unix,
+/// `USERPROFILE` on Windows (mirrors Node's `os.homedir()`, so the conf
+/// dir / runtime.json the proxy writes match where the TS CLI looks).
+fn home_dir() -> std::path::PathBuf {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+}
+
 /// The conf.d directory holding per-namespace route fragments.
-/// `FBI_PROXY_CONF_DIR` overrides; default `~/.config/fbi-proxy/conf.d`.
+/// `FBI_PROXY_CONF_DIR` overrides; default `<home>/.config/fbi-proxy/conf.d`
+/// on every platform (so it lines up with the TS CLI's `os.homedir()`).
 fn default_conf_dir() -> std::path::PathBuf {
     if let Ok(d) = std::env::var("FBI_PROXY_CONF_DIR") {
         if !d.is_empty() {
             return std::path::PathBuf::from(d);
         }
     }
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    std::path::PathBuf::from(home).join(".config/fbi-proxy/conf.d")
+    home_dir().join(".config").join("fbi-proxy").join("conf.d")
 }
 
 /// Rebuild the merged compiled route set: bundled defaults (namespace

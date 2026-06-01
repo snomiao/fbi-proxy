@@ -4,6 +4,7 @@
  * exists (clone/fetch/pull), and report the result.
  */
 
+/** `wsRoot` is the absolute workspace-root path (server-joined). */
 export type Config = { home: string; wsRoot: string };
 
 export type FailReason = "branch-not-found" | "repo-not-found" | "other";

@@ -85,7 +85,7 @@ async function main() {
 
   // Bare ws root: open it directly, no provisioning.
   if (!rel) {
-    openVscode(frame, msg, `${cfg.home}/${cfg.wsRoot}`);
+    openVscode(frame, msg, cfg.wsRoot);
     return;
   }
 

@@ -35,7 +35,10 @@ export function defaultConfigDir(): string {
     // FBI_PROXY_CONF_DIR points at conf.d; runtime.json sits beside it.
     return path.dirname(fromEnv);
   }
-  return path.join(os.homedir(), ".config/fbi-proxy");
+  // Mirror the Rust side's `<home>/.config/fbi-proxy` (HOME on Unix,
+  // USERPROFILE on Windows — os.homedir() resolves both). path.join
+  // normalizes the separator per platform.
+  return path.join(os.homedir(), ".config", "fbi-proxy");
 }
 
 function runtimeJsonPath(): string {

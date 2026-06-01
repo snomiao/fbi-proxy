@@ -19,10 +19,17 @@ use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer, pem::PemObj
 pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
 /// Where on-disk certs live. Layout: `{base}/certs/{domain}.{pem,key}`.
+/// `XDG_CONFIG_HOME` wins if set; otherwise `<home>/.config`, resolving
+/// home via `HOME` (Unix) or `USERPROFILE` (Windows) so the layout
+/// matches the conf dir the proxy uses elsewhere.
 pub fn default_cert_dir() -> PathBuf {
     let base = std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .or_else(|| std::env::var_os("USERPROFILE"))
+                .map(|h| PathBuf::from(h).join(".config"))
+        })
         .unwrap_or_else(|| PathBuf::from("."));
     base.join("fbi-proxy").join("certs")
 }

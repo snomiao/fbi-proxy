@@ -39,7 +39,16 @@ export default defineConfig({
       configureServer(server) {
         server.middlewares.use("/__config", (_req, res) => {
           res.setHeader("Content-Type", "application/json");
-          res.end(JSON.stringify({ home: os.homedir(), wsRoot: "ws" }));
+          // `wsRoot` is the absolute path to the workspace root, joined
+          // server-side so the client never concatenates with "/" (which
+          // would produce mixed separators on Windows). Matches the base
+          // used by provision.ts (folderFor).
+          res.end(
+            JSON.stringify({
+              home: os.homedir(),
+              wsRoot: path.join(os.homedir(), "ws"),
+            }),
+          );
         });
 
         // GET  /api/repo/<owner>/<repo>/tree/<branch>          -> provision

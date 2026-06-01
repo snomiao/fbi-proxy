@@ -31,7 +31,7 @@ async function main() {
   const rel = new URLSearchParams(location.search).get("repo") ?? "";
   let cwd: string;
   if (!rel) {
-    cwd = `${cfg.home}/${cfg.wsRoot}`;
+    cwd = cfg.wsRoot;
   } else {
     status.textContent = `Provisioning ${rel}…`;
     const res = await provisionFromLocation(rel);

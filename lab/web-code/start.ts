@@ -47,9 +47,13 @@ function seedVscodeSettings(): void {
   );
 }
 
+// On Windows, `code`/`bun`/`bunx` resolve to .cmd/.bat shims that Node's
+// spawn can't exec directly — it needs a shell. Harmless on Unix.
+const NEEDS_SHELL = process.platform === "win32";
+
 function run(cmd: string, args: string[], label: string): ChildProcess {
   console.log(`[web-code] starting ${label}: ${cmd} ${args.join(" ")}`);
-  const child = spawn(cmd, args, { stdio: "inherit" });
+  const child = spawn(cmd, args, { stdio: "inherit", shell: NEEDS_SHELL });
   child.on("exit", (code) =>
     console.log(`[web-code] ${label} exited (${code})`),
   );
@@ -60,7 +64,11 @@ function run(cmd: string, args: string[], label: string): ChildProcess {
 function fbiProxy(args: string[]): number {
   // Resolve the repo CLI relative to this lab dir so it works in-tree.
   const cli = path.resolve(HERE, "../../ts/cli.ts");
-  const res = spawnSync("bun", [cli, ...args], { stdio: "inherit", cwd: HERE });
+  const res = spawnSync("bun", [cli, ...args], {
+    stdio: "inherit",
+    cwd: HERE,
+    shell: NEEDS_SHELL,
+  });
   return res.status ?? 1;
 }
 
