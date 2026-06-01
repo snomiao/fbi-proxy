@@ -1,3 +1,9 @@
+# [1.18.0](https://github.com/snomiao/fbi-proxy/compare/v1.17.0...v1.18.0) (2026-06-01)
+
+### Features
+
+- **lab/web-code:** github.com -> fbi.com gateway with auto-provision ([a7ce4e5](https://github.com/snomiao/fbi-proxy/commit/a7ce4e5e0d9caf88c0cb93a643c4bc566f37fe25))
+
 # [1.17.0](https://github.com/snomiao/fbi-proxy/compare/v1.16.0...v1.17.0) (2026-06-01)
 
 ### Bug Fixes
