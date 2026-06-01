@@ -24,6 +24,26 @@ function setStatus(msg: HTMLElement, html: string) {
   msg.hidden = false;
 }
 
+/**
+ * Escape text for safe interpolation into innerHTML. The repo path comes
+ * from `location.pathname` (attacker-controllable in a crafted link), so
+ * it must never reach innerHTML unescaped — otherwise e.g.
+ * `/%3Cimg%20onerror=...%3E/tree/main` would run script on this origin.
+ */
+function esc(s: string): string {
+  return s.replace(
+    /[&<>"']/g,
+    (c) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      })[c]!,
+  );
+}
+
 async function main() {
   // UI selector: `?ui=wtx` opens the web terminal, anything else (or
   // `?ui=vscode`) opens VS Code. The terminal lives on its own page
@@ -70,7 +90,7 @@ async function main() {
   }
 
   // Provision the repo via the API, surfacing progress + git status.
-  setStatus(msg, `Provisioning <code>${rel}</code>…`);
+  setStatus(msg, `Provisioning <code>${esc(rel)}</code>…`);
   const result = await provisionFromLocation(rel);
 
   if (!result.ok) {
@@ -83,12 +103,12 @@ async function main() {
     }
     setStatus(
       msg,
-      `<strong>Could not provision <code>${rel}</code></strong><br><pre>${(result.error || "unknown error").replace(/</g, "&lt;")}</pre>`,
+      `<strong>Could not provision <code>${esc(rel)}</code></strong><br><pre>${esc(result.error || "unknown error")}</pre>`,
     );
     return;
   }
 
-  setStatus(msg, `${statusNote(result, rel)}. Opening…`);
+  setStatus(msg, `${esc(statusNote(result, rel))}. Opening…`);
   openVscode(frame, msg, result.folder);
 }
 
@@ -99,25 +119,26 @@ function offerCreateBranch(
   rel: string,
   branch: string,
 ) {
+  const b = esc(branch);
   setStatus(
     msg,
-    `<p>Branch <code>${branch}</code> doesn't exist on the remote yet.</p>` +
-      `<button id="create-branch">Create branch <code>${branch}</code> locally</button>` +
+    `<p>Branch <code>${b}</code> doesn't exist on the remote yet.</p>` +
+      `<button id="create-branch">Create branch <code>${b}</code> locally</button>` +
       `<p style="opacity:.6;font-size:.9em">Branches off the repo's default branch. Not pushed — push it later from the editor or terminal.</p>`,
   );
   const btn = msg.querySelector<HTMLButtonElement>("#create-branch");
   btn?.addEventListener("click", async () => {
     btn.disabled = true;
-    setStatus(msg, `Creating <code>${branch}</code>…`);
+    setStatus(msg, `Creating <code>${b}</code>…`);
     const r = await createBranchFromLocation(rel);
     if (!r.ok) {
       setStatus(
         msg,
-        `<strong>Could not create <code>${branch}</code></strong><br><pre>${(r.error || "unknown error").replace(/</g, "&lt;")}</pre>`,
+        `<strong>Could not create <code>${b}</code></strong><br><pre>${esc(r.error || "unknown error")}</pre>`,
       );
       return;
     }
-    setStatus(msg, `${statusNote(r, rel)}. Opening…`);
+    setStatus(msg, `${esc(statusNote(r, rel))}. Opening…`);
     openVscode(frame, msg, r.folder);
   });
 }

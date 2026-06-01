@@ -243,28 +243,37 @@ npx fbi-proxy -d fbi.example.com  # Only accept *.fbi.example.com</pre>
         // routing only applies to L7 requests we terminate ourselves.
         let req_path = if req_path.is_empty() { "/" } else { req_path };
 
-        // Try the rules first (path-aware: longest matching prefix wins).
+        // Is this the exact apex host (e.g. `fbi.com` itself, not a
+        // subdomain)? The apex is reserved for the landing page unless a
+        // rule *explicitly* claims it with a `path` — otherwise a bundled
+        // placeholder rule like `{host}.{domain}` would swallow
+        // `https://fbi.com/` and break `fbi-proxy setup`'s verification.
+        let is_apex = match &self.domain_filter {
+            Some(d) => !d.is_empty() && host_without_port.eq_ignore_ascii_case(d),
+            None => false,
+        };
+
         // Lock-free read of the live routes (may have been swapped by the
-        // watcher/admin API mid-flight). `.load()` returns an Arc held
-        // for the duration of the match.
+        // watcher/admin API mid-flight). `.load()` returns an Arc held for
+        // the duration of the match. At the apex, only explicit-path rules
+        // are eligible; elsewhere, normal longest-prefix matching applies.
         let routes_guard = self.compiled_routes.load();
-        if let Some(hit) = routes::match_request(
+        if let Some(hit) = routes::match_request_opts(
             routes_guard.as_ref(),
             host_header,
             req_path,
             self.domain_filter.as_deref(),
+            is_apex,
         ) {
             let RouteHit { target, host_header: rewrite, .. } = hit;
             let new_host = rewrite.unwrap_or_else(|| Self::host_from_target(&target));
             return RouteDecision::Hit { target, host: new_host };
         }
 
-        // No rule matched. Serve the landing page for an exact-apex
-        // request when a domain filter is configured; otherwise reject.
-        if let Some(ref domain) = self.domain_filter {
-            if !domain.is_empty() && host_without_port.eq_ignore_ascii_case(domain) {
-                return RouteDecision::Landing;
-            }
+        // No rule matched. Apex with a domain filter → built-in landing
+        // page; anything else → reject.
+        if is_apex {
+            return RouteDecision::Landing;
         }
         RouteDecision::Reject
     }

@@ -577,6 +577,23 @@ pub fn match_request(
     req_path: &str,
     default_domain: Option<&str>,
 ) -> Option<RouteHit> {
+    match_request_opts(routes, host, req_path, default_domain, false)
+}
+
+/// Like [`match_request`], but when `require_explicit_path` is set, only
+/// routes that declare an explicit `path` are eligible. The proxy uses
+/// this for the exact-apex host (`host == domain`) so that a path-less
+/// bundled rule (e.g. `{host}.{domain}`) never swallows `https://fbi.com/`
+/// — that request falls through to the built-in landing page unless a
+/// rule *explicitly* owns the apex with a `path` (e.g. the web-code lab's
+/// `match: fbi.com, path: /`).
+pub fn match_request_opts(
+    routes: &[CompiledRoute],
+    host: &str,
+    req_path: &str,
+    default_domain: Option<&str>,
+    require_explicit_path: bool,
+) -> Option<RouteHit> {
     let host = normalize(host);
 
     if let Some(domain) = default_domain {
@@ -599,7 +616,12 @@ pub fn match_request(
             continue;
         }
         let priority: i64 = match &route.path_prefix {
-            None => 0,
+            None => {
+                if require_explicit_path {
+                    continue;
+                }
+                0
+            }
             Some(prefix) => {
                 if !path_matches(prefix, req_path) {
                     continue;
@@ -1167,5 +1189,33 @@ routes:
         }])
         .unwrap();
         assert_eq!(bundled[0].namespace, "default");
+    }
+
+    // ----- apex landing protection (regression: codex P1) -----
+
+    #[test]
+    fn bundled_apex_is_reserved_for_landing() {
+        // The shipped bundled routes must NOT swallow the exact apex host:
+        // `fbi.com/` should fall through (None => landing), not match a
+        // placeholder rule like `{host}` / `{host}.{domain}`.
+        let yaml = include_str!("../routes.yaml");
+        let routes = compile(parse_yaml(yaml).unwrap().routes).unwrap();
+        // require_explicit_path=true models the proxy's apex handling.
+        let hit = match_request_opts(&routes, "fbi.com", "/", Some("fbi.com"), true);
+        assert!(hit.is_none(), "apex wrongly matched: {hit:?}");
+        // A non-apex subdomain still routes normally.
+        let sub = match_request_opts(&routes, "3000.fbi.com", "/", Some("fbi.com"), false);
+        assert_eq!(sub.unwrap().target, "localhost:3000");
+    }
+
+    #[test]
+    fn explicit_path_rule_owns_apex() {
+        // The web-code lab's `match: fbi.com, path: /` rule explicitly
+        // claims the apex, so it wins even under require_explicit_path.
+        let routes = web_code_routes(); // root (path "/") + vscode (/_vscode/)
+        let root = match_request_opts(&routes, "fbi.com", "/", Some("fbi.com"), true);
+        assert_eq!(root.unwrap().target, "localhost:3001");
+        let vscode = match_request_opts(&routes, "fbi.com", "/_vscode/x", Some("fbi.com"), true);
+        assert_eq!(vscode.unwrap().target, "localhost:9999");
     }
 }
