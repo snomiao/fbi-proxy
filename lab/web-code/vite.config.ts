@@ -1,10 +1,18 @@
 import os from "node:os";
 import { defineConfig } from "vite";
+import { folderFor, parseSpec, provision } from "./provision";
 
 /**
- * The shell server (port 3001). It serves a single iframe page and a tiny
- * `/__config` endpoint so the client knows the server's home directory
- * (used to build the VS Code `?folder=` path).
+ * The shell server (port 3001). It serves:
+ *   - the iframe page (web-code shell)
+ *   - `GET /__config`        — server home dir + ws root for the client
+ *   - `GET /api/repo/<owner>/<repo>/tree/<branch>`
+ *        — ensure the repo exists locally (clone if missing; fetch +
+ *          pull-if-clean if present) and return its git status + the
+ *          local folder path for VS Code's `?folder=`.
+ *
+ * `/api/` and `/__config` both live under fbi-proxy's `/` route, so no
+ * extra proxy rule is needed — they're same-origin with the shell.
  */
 export default defineConfig({
   server: {
@@ -13,20 +21,44 @@ export default defineConfig({
   },
   plugins: [
     {
-      name: "web-code-config",
+      name: "web-code-shell",
       configureServer(server) {
         server.middlewares.use("/__config", (_req, res) => {
           res.setHeader("Content-Type", "application/json");
-          res.end(
-            JSON.stringify({
-              home: os.homedir(),
-              // Where repos live, relative to home. Matches the user's
-              // ~/ws/<user>/<repo>/tree/<branch> convention.
-              wsRoot: "ws",
-            }),
-          );
+          res.end(JSON.stringify({ home: os.homedir(), wsRoot: "ws" }));
+        });
+
+        // GET /api/repo/<owner>/<repo>/tree/<branch>
+        server.middlewares.use("/api/repo/", async (req, res) => {
+          const json = (status: number, body: unknown) => {
+            res.statusCode = status;
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify(body));
+          };
+          try {
+            const url = new URL(req.url ?? "", "http://localhost");
+            // strip the mount prefix that connect already consumed is not
+            // applied here (middleware sees the full path), so parse from
+            // after "/api/repo/".
+            const full = decodeURIComponent(url.pathname);
+            const specPath = full.replace(/^\/api\/repo\//, "");
+            const spec = parseSpec(specPath);
+            if (!spec) {
+              return json(400, {
+                ok: false,
+                error: "expected /api/repo/<owner>/<repo>/tree/<branch>",
+              });
+            }
+            const result = await provision(spec);
+            return json(result.ok ? 200 : 502, result);
+          } catch (e) {
+            return json(500, { ok: false, error: String(e) });
+          }
         });
       },
     },
   ],
 });
+
+// Re-export so `folderFor` is reachable for tests/tools importing the config.
+export { folderFor };

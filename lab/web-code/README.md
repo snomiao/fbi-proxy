@@ -1,15 +1,22 @@
 # web-code lab
 
-Serve a browser VS Code instance and a thin shell page under **one origin**
-(`https://fbi.com`), so the shell can embed VS Code in an `<iframe>` with no
-cross-origin friction.
+A **github.com → fbi.com gateway**: swap the host on any GitHub URL and it
+opens that repo in a browser VS Code, auto-provisioning the local checkout.
+Everything runs under **one origin** (`https://fbi.com`) so VS Code embeds in
+an `<iframe>` with no cross-origin friction.
 
 ```
-https://fbi.com/                       -> vite shell (:3001)
-https://fbi.com/<user>/<repo>/tree/<branch>
-                                        -> shell rewrites the iframe to
-https://fbi.com/_vscode/?folder=<home>/ws/<user>/<repo>/tree/<branch>
-                                        -> code serve-web (:9999)
+github.com/<owner>/<repo>/tree/<branch>     (just change the host)
+    ↓
+https://fbi.com/<owner>/<repo>/tree/<branch>
+    │  shell calls GET /api/repo/<owner>/<repo>/tree/<branch>
+    │    • missing  -> git clone --branch <branch> --single-branch
+    │                  into ~/ws/<owner>/<repo>/tree/<branch>
+    │    • present  -> git fetch --prune; git pull --ff-only ONLY if the
+    │                  worktree is clean & fast-forwardable (else fetch-only)
+    │  -> returns the local folder + git status (ahead/behind/dirty)
+    ↓
+https://fbi.com/_vscode/?folder=<local worktree>   -> code serve-web (:9999)
 ```
 
 This is the motivating use case for fbi-proxy's runtime, path-aware routing:
@@ -20,12 +27,29 @@ live via the admin API.
 
 - `fbi-proxy.yaml` declares the namespace `web-code` and two routes.
   `/_vscode/` wins over `/` because the router picks the **longest matching
-  path prefix**.
+  path prefix**. `/api/` and `/__config` ride the `/` route — no extra rule.
 - `start.ts` launches `code serve-web` + the vite shell, then runs
   `fbi-proxy up` to register the routes (and `fbi-proxy down` on exit).
-- `vite.config.ts` exposes `/__config` with the server's `home` dir, so the
-  client builds the correct `?folder=` path.
-- `shell.ts` reads `location.pathname` and points the iframe at VS Code.
+- `provision.ts` maps `<owner>/<repo>/tree/<branch>` to
+  `~/ws/<owner>/<repo>/tree/<branch>`, clones/fetches/pulls as above, and
+  reports git status. Every path segment is validated (no traversal, no git
+  option injection) and git runs via `execFile` (no shell).
+- `vite.config.ts` serves `/__config` and the `/api/repo/...` provisioning
+  endpoint on the shell server.
+- `shell.ts` reads `location.pathname`, calls the API, shows clone/fetch/pull
+  status inline, then points the iframe at the folder the server returns.
+
+## API
+
+```
+GET /api/repo/<owner>/<repo>/tree/<branch>
+  -> { ok, folder, existed, action: cloned|pulled|fetched|none|error,
+       git: { branch, head, ahead, behind, dirty, hasUpstream } }
+```
+
+`pull` happens only when the worktree is clean, has an upstream, is behind,
+and is not ahead — local work is never clobbered; everything else is
+fetch-only so you can merge/rebase yourself in the editor.
 
 ## Prerequisites
 
