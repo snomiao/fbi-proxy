@@ -17,6 +17,7 @@ import {
   provisionFromLocation,
   statusNote,
   type Config,
+  type ProvisionResult,
 } from "./provision-client";
 
 function setStatus(msg: HTMLElement, html: string) {
@@ -108,8 +109,21 @@ async function main() {
     return;
   }
 
+  setTitle(rel, result);
   setStatus(msg, `${esc(statusNote(result, rel))}. Opening…`);
   openVscode(frame, msg, result.folder);
+}
+
+/**
+ * Tab title: `<branch>@<repo>\<owner> - web-code`, prefixed with `! ` when the
+ * worktree has uncommitted changes — a dirty flag visible at a glance across
+ * many tabs. `rel` is `<owner>/<repo>/tree/<branch>` (branch may have slashes).
+ */
+function setTitle(rel: string, result: ProvisionResult) {
+  const [ownerRepo, branch = rel] = rel.split("/tree/");
+  const [owner = "", repo = ""] = (ownerRepo ?? "").split("/");
+  const dirty = result.git?.dirty ? "! " : "";
+  document.title = `${dirty}${branch}@${repo}\\${owner} - web-code`;
 }
 
 /** Render a "Create branch" affordance and wire it to the create API. */
@@ -138,6 +152,7 @@ function offerCreateBranch(
       );
       return;
     }
+    setTitle(rel, r);
     setStatus(msg, `${esc(statusNote(r, rel))}. Opening…`);
     openVscode(frame, msg, r.folder);
   });
