@@ -1,3 +1,17 @@
+# [1.17.0](https://github.com/snomiao/fbi-proxy/compare/v1.16.0...v1.17.0) (2026-06-01)
+
+### Bug Fixes
+
+- **lab/web-code:** forward public Host to serve-web so the file tree loads ([1bb2d07](https://github.com/snomiao/fbi-proxy/commit/1bb2d072f407ebd2d19c34891feb6d32012c486b))
+- **lab/web-code:** pin VS Code locale via cookie so the editor renders ([647253a](https://github.com/snomiao/fbi-proxy/commit/647253a519619781c444cc4e7fbab0e364d97e39))
+- **proxy:** don't forward WS extensions upstream — fixes VS Code file tree ([5de7e76](https://github.com/snomiao/fbi-proxy/commit/5de7e76371a32183e8c3bcd58a365359a5ff03b1))
+- **proxy:** forward WebSocket headers so VS Code serve-web works behind the proxy ([5c25a9d](https://github.com/snomiao/fbi-proxy/commit/5c25a9d6c8b3e6d8ea8c862abaa0371d464cd095))
+- **setup:** explain why macOS asks for a password; harden web-code lab ([003b234](https://github.com/snomiao/fbi-proxy/commit/003b234fa0dee578e68ebda9204540142b850856))
+
+### Features
+
+- **routes:** runtime per-project rules via compose-style CLI + path matching ([e350dad](https://github.com/snomiao/fbi-proxy/commit/e350dad12e7b5214ebfb1484aa66b21f34deba0c))
+
 # [1.16.0](https://github.com/snomiao/fbi-proxy/compare/v1.15.0...v1.16.0) (2026-05-19)
 
 ### Features
