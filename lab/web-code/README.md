@@ -19,6 +19,22 @@ https://fbi.com/<owner>/<repo>/tree/<branch>
 https://fbi.com/_vscode/?folder=<local worktree>   -> code serve-web (:9999)
 ```
 
+### UI selector: `?ui=`
+
+Append `?ui=wtx` to open a **web terminal** in the same worktree instead of
+the editor (`?ui=vscode` or no param = VS Code):
+
+```
+https://fbi.com/<owner>/<repo>/tree/<branch>          -> VS Code  (default)
+https://fbi.com/<owner>/<repo>/tree/<branch>?ui=wtx   -> terminal (wtx)
+```
+
+The terminal is [`@snomiao/wtx`](https://github.com/snomiao/wtx) — a Bun PTY
+WebSocket server (vendored as a git submodule at `lib/wtx`) with its
+`wtx-react` xterm.js UI. The shell hands off to `terminal.html`, which
+provisions the repo via the same `/api/repo` endpoint, then opens a PTY at
+that folder over `wss://fbi.com/_wtx/` (a third fbi-proxy route → :3004).
+
 This is the motivating use case for fbi-proxy's runtime, path-aware routing:
 two rules for the **same host** differing only by **path prefix**, registered
 live via the admin API.

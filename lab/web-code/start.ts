@@ -83,8 +83,11 @@ async function main() {
     "code serve-web",
   );
 
-  // 2. vite shell
+  // 2. vite shell (serves the iframe page, /api, and the wtx terminal page)
   run("bunx", ["vite", "--port", "3001", "--strictPort"], "vite shell");
+
+  // 3. wtx PTY WebSocket server (web terminal backend, ?ui=wtx)
+  run("bun", [path.join(HERE, "lib", "wtx", "wtx.mjs")], "wtx terminal");
 
   // Give them a moment, then register routes.
   await new Promise((r) => setTimeout(r, 1500));
@@ -95,7 +98,9 @@ async function main() {
     console.error("[web-code] `fbi-proxy up` failed — is the proxy running?");
   } else {
     console.log(
-      "[web-code] routes applied. Open https://fbi.com/<user>/<repo>/tree/<branch>",
+      "[web-code] routes applied.\n" +
+        "  VS Code : https://fbi.com/<owner>/<repo>/tree/<branch>\n" +
+        "  Terminal: https://fbi.com/<owner>/<repo>/tree/<branch>?ui=wtx",
     );
   }
 

@@ -1,6 +1,11 @@
 import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
 import { folderFor, parseSpec, provision } from "./provision";
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 /**
  * The shell server (port 3001). It serves:
@@ -19,7 +24,16 @@ export default defineConfig({
     port: 3001,
     strictPort: true,
   },
+  build: {
+    rollupOptions: {
+      input: {
+        main: path.join(HERE, "index.html"),
+        terminal: path.join(HERE, "terminal.html"),
+      },
+    },
+  },
   plugins: [
+    react(),
     {
       name: "web-code-shell",
       configureServer(server) {

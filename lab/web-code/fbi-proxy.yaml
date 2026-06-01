@@ -1,10 +1,13 @@
-# web-code: serve a VS Code web instance and a thin shell under ONE origin.
+# web-code: serve a VS Code web instance, a wtx web terminal, and a thin
+# shell — all under ONE origin.
 #
 #   https://fbi.com/                      -> vite shell (this app, :3001)
 #   https://fbi.com/_vscode/...           -> `code serve-web` (:9999)
+#   https://fbi.com/_wtx/...              -> wtx PTY WebSocket server (:3004)
 #
-# Same origin means the shell can embed VS Code in an <iframe> with no
-# cross-origin restrictions. Longest-prefix wins, so `/_vscode/` beats `/`.
+# Same origin means the shell can embed VS Code in an <iframe> and open a
+# same-origin terminal WebSocket with no cross-origin restrictions.
+# Longest-prefix wins, so `/_vscode/` and `/_wtx/` beat `/`.
 #
 # The `_vscode` route forwards the PUBLIC Host (fbi.com) upstream instead of
 # the default `localhost`. `code serve-web` derives its `remoteAuthority`
@@ -22,6 +25,10 @@ routes:
     target: localhost:9999
     headers:
       Host: fbi.com
+  - name: wtx
+    match: fbi.com
+    path: /_wtx/
+    target: localhost:3004
   - name: root
     match: fbi.com
     path: /

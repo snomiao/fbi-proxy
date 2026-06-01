@@ -12,22 +12,11 @@
  * `~/<wsRoot>` so you can browse what's already checked out.
  */
 
-type Config = { home: string; wsRoot: string };
-
-type ProvisionResult = {
-  ok: boolean;
-  folder: string;
-  existed: boolean;
-  action: "cloned" | "pulled" | "fetched" | "none" | "error";
-  git?: {
-    branch: string;
-    head: string;
-    ahead: number;
-    behind: number;
-    dirty: boolean;
-  };
-  error?: string;
-};
+import {
+  provisionFromLocation,
+  statusNote,
+  type Config,
+} from "./provision-client";
 
 function setStatus(msg: HTMLElement, html: string) {
   msg.innerHTML = html;
@@ -35,6 +24,21 @@ function setStatus(msg: HTMLElement, html: string) {
 }
 
 async function main() {
+  // UI selector: `?ui=wtx` opens the web terminal, anything else (or
+  // `?ui=vscode`) opens VS Code. The terminal lives on its own page
+  // (terminal.html, a React/xterm bundle) to keep the VS Code path a
+  // dependency-free iframe shell; route there preserving the repo path
+  // and remaining query so the same /api/repo provisioning applies.
+  const ui = new URLSearchParams(location.search).get("ui");
+  if (ui === "wtx") {
+    // Hand off to the terminal page (a separate React/xterm bundle), passing
+    // the repo path as `?repo=` so terminal.html is reached at a clean URL
+    // (vite's SPA fallback otherwise wouldn't serve it under a repo path).
+    const rel = location.pathname.replace(/^\/+/, "");
+    location.replace(`/terminal.html?repo=${encodeURIComponent(rel)}`);
+    return;
+  }
+
   const msg = document.getElementById("msg") as HTMLDivElement;
   const frame = document.getElementById("frame") as HTMLIFrameElement;
 
@@ -66,14 +70,7 @@ async function main() {
 
   // Provision the repo via the API, surfacing progress + git status.
   setStatus(msg, `Provisioning <code>${rel}</code>…`);
-  let result: ProvisionResult;
-  try {
-    const res = await fetch(`/api/repo/${rel}`);
-    result = await res.json();
-  } catch (e) {
-    setStatus(msg, `Provisioning request failed: ${e}`);
-    return;
-  }
+  const result = await provisionFromLocation(rel);
 
   if (!result.ok) {
     setStatus(
@@ -83,22 +80,7 @@ async function main() {
     return;
   }
 
-  const g = result.git;
-  const note = [
-    result.action === "cloned"
-      ? "cloned"
-      : result.existed
-        ? result.action
-        : "ready",
-    g ? `@ ${g.head}` : "",
-    g && g.dirty ? "· local changes" : "",
-    g && g.behind ? `· ${g.behind} behind` : "",
-    g && g.ahead ? `· ${g.ahead} ahead` : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
-  setStatus(msg, `<code>${rel}</code> — ${note}. Opening…`);
-
+  setStatus(msg, `${statusNote(result, rel)}. Opening…`);
   openVscode(frame, msg, result.folder);
 }
 
