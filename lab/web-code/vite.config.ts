@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import { folderFor, parseSpec, provision } from "./provision";
+import { createBranch, folderFor, parseSpec, provision } from "./provision";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -42,7 +42,10 @@ export default defineConfig({
           res.end(JSON.stringify({ home: os.homedir(), wsRoot: "ws" }));
         });
 
-        // GET /api/repo/<owner>/<repo>/tree/<branch>
+        // GET  /api/repo/<owner>/<repo>/tree/<branch>          -> provision
+        // POST /api/repo/<owner>/<repo>/tree/<branch>?create=1 -> create the
+        //   branch locally off the repo's default branch (no push), for when
+        //   provision returned reason:"branch-not-found".
         server.middlewares.use("/api/repo/", async (req, res) => {
           const json = (status: number, body: unknown) => {
             res.statusCode = status;
@@ -51,9 +54,7 @@ export default defineConfig({
           };
           try {
             const url = new URL(req.url ?? "", "http://localhost");
-            // strip the mount prefix that connect already consumed is not
-            // applied here (middleware sees the full path), so parse from
-            // after "/api/repo/".
+            // The middleware sees the full path, so parse after "/api/repo/".
             const full = decodeURIComponent(url.pathname);
             const specPath = full.replace(/^\/api\/repo\//, "");
             const spec = parseSpec(specPath);
@@ -63,7 +64,11 @@ export default defineConfig({
                 error: "expected /api/repo/<owner>/<repo>/tree/<branch>",
               });
             }
-            const result = await provision(spec);
+            const isCreate =
+              req.method === "POST" && url.searchParams.get("create") === "1";
+            const result = isCreate
+              ? await createBranch(spec)
+              : await provision(spec);
             return json(result.ok ? 200 : 502, result);
           } catch (e) {
             return json(500, { ok: false, error: String(e) });

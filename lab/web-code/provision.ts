@@ -40,16 +40,33 @@ export type GitStatus = {
   hasUpstream: boolean;
 };
 
+/**
+ * Why a provision failed, when we can tell:
+ *   - "branch-not-found": repo exists on the remote but the branch does
+ *     not — the shell offers a "Create branch" action for this.
+ *   - "repo-not-found": the remote repo itself is missing/inaccessible.
+ *   - "other": anything else (network, auth, disk, …).
+ */
+export type FailReason = "branch-not-found" | "repo-not-found" | "other";
+
 export type ProvisionResult = {
   ok: boolean;
   spec: RepoSpec;
   /** Absolute local worktree path (the VS Code `?folder=` target). */
   folder: string;
   existed: boolean;
-  action: "cloned" | "pulled" | "fetched" | "none" | "error";
+  action: "cloned" | "pulled" | "fetched" | "created" | "none" | "error";
   git?: GitStatus;
   error?: string;
+  reason?: FailReason;
 };
+
+function classifyError(msg: string): FailReason {
+  if (/remote branch .* not found/i.test(msg)) return "branch-not-found";
+  if (/repository .* not found|could not read from remote/i.test(msg))
+    return "repo-not-found";
+  return "other";
+}
 
 /** Parse `<owner>/<repo>/tree/<branch>` (branch may contain slashes). */
 export function parseSpec(p: string): RepoSpec | null {
@@ -161,11 +178,57 @@ export async function provision(spec: RepoSpec): Promise<ProvisionResult> {
     return { ...base, ok: true, action, git: after };
   } catch (e: unknown) {
     const err = e as { stderr?: string; message?: string };
+    const error = (err.stderr || err.message || String(e)).trim().slice(0, 600);
     return {
       ...base,
       ok: false,
       action: "error",
-      error: (err.stderr || err.message || String(e)).trim().slice(0, 600),
+      error,
+      reason: classifyError(error),
+    };
+  }
+}
+
+/**
+ * Create `spec.branch` locally (no push) for a repo whose remote branch
+ * doesn't exist yet. Clones the repo's default branch into the worktree
+ * path, then `git switch -c <branch>`. Refuses if the worktree already
+ * exists (use the normal provision path for that). Never throws.
+ */
+export async function createBranch(spec: RepoSpec): Promise<ProvisionResult> {
+  const folder = folderFor(spec);
+  const base = {
+    ok: false as boolean,
+    spec,
+    folder,
+    existed: existsSync(path.join(folder, ".git")),
+    action: "none" as ProvisionResult["action"],
+  };
+  if (base.existed) {
+    return {
+      ...base,
+      ok: false,
+      action: "error",
+      error: "worktree already exists",
+    };
+  }
+  try {
+    await mkdir(path.dirname(folder), { recursive: true });
+    const url = `https://github.com/${spec.owner}/${spec.repo}`;
+    // Clone the default branch (no --branch), then branch off it locally.
+    await git(WS_ROOT, ["clone", "--", url, folder]);
+    await git(folder, ["switch", "-c", spec.branch]);
+    const status = await readStatus(folder);
+    return { ...base, ok: true, action: "created", git: status };
+  } catch (e: unknown) {
+    const err = e as { stderr?: string; message?: string };
+    const error = (err.stderr || err.message || String(e)).trim().slice(0, 600);
+    return {
+      ...base,
+      ok: false,
+      action: "error",
+      error,
+      reason: classifyError(error),
     };
   }
 }

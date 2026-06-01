@@ -13,6 +13,7 @@
  */
 
 import {
+  createBranchFromLocation,
   provisionFromLocation,
   statusNote,
   type Config,
@@ -73,6 +74,13 @@ async function main() {
   const result = await provisionFromLocation(rel);
 
   if (!result.ok) {
+    // Remote repo exists but the branch doesn't yet → offer to create it
+    // locally (branched off the default branch, no push).
+    if (result.reason === "branch-not-found") {
+      const branch = rel.split("/tree/")[1] ?? rel;
+      offerCreateBranch(msg, frame, rel, branch);
+      return;
+    }
     setStatus(
       msg,
       `<strong>Could not provision <code>${rel}</code></strong><br><pre>${(result.error || "unknown error").replace(/</g, "&lt;")}</pre>`,
@@ -82,6 +90,36 @@ async function main() {
 
   setStatus(msg, `${statusNote(result, rel)}. Opening…`);
   openVscode(frame, msg, result.folder);
+}
+
+/** Render a "Create branch" affordance and wire it to the create API. */
+function offerCreateBranch(
+  msg: HTMLElement,
+  frame: HTMLIFrameElement,
+  rel: string,
+  branch: string,
+) {
+  setStatus(
+    msg,
+    `<p>Branch <code>${branch}</code> doesn't exist on the remote yet.</p>` +
+      `<button id="create-branch">Create branch <code>${branch}</code> locally</button>` +
+      `<p style="opacity:.6;font-size:.9em">Branches off the repo's default branch. Not pushed — push it later from the editor or terminal.</p>`,
+  );
+  const btn = msg.querySelector<HTMLButtonElement>("#create-branch");
+  btn?.addEventListener("click", async () => {
+    btn.disabled = true;
+    setStatus(msg, `Creating <code>${branch}</code>…`);
+    const r = await createBranchFromLocation(rel);
+    if (!r.ok) {
+      setStatus(
+        msg,
+        `<strong>Could not create <code>${branch}</code></strong><br><pre>${(r.error || "unknown error").replace(/</g, "&lt;")}</pre>`,
+      );
+      return;
+    }
+    setStatus(msg, `${statusNote(r, rel)}. Opening…`);
+    openVscode(frame, msg, r.folder);
+  });
 }
 
 function openVscode(
