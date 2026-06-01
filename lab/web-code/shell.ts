@@ -193,7 +193,8 @@ function offerCreateBranch(
       );
       return;
     }
-    setTitle(rel, r);
+    setTitle(rel, r.git);
+    liveTitle(rel);
     setStatus(msg, `${esc(statusNote(r, rel))}. Opening…`);
     openVscode(frame, msg, r.folder);
   });
