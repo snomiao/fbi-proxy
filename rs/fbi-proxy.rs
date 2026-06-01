@@ -535,9 +535,32 @@ npx fbi-proxy -d fbi.example.com  # Only accept *.fbi.example.com</pre>
             uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/")
         );
 
+        // Build the upstream handshake request from the URL (this generates
+        // the mandatory Host / Sec-WebSocket-Key / -Version / Upgrade
+        // headers), then forward the subprotocol + auth headers from the
+        // client. Without `Sec-WebSocket-Protocol` some upstreams — notably
+        // VS Code `serve-web`'s `vscode-remote-resource` channel — reject
+        // the handshake with 400, which previously surfaced as a 502 and a
+        // dead file tree behind the proxy.
+        use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+        let mut upstream_req = match ws_url.as_str().into_client_request() {
+            Ok(r) => r,
+            Err(e) => {
+                error!("WS :ws:{} => invalid upstream request {}: {}", target_host, uri, e);
+                return Ok(Response::builder()
+                    .status(StatusCode::BAD_GATEWAY)
+                    .body(Full::new(Bytes::from(format!("502 Bad Gateway: invalid WebSocket target: {}", e))).map_err(|e| match e {}).boxed())?);
+            }
+        };
+        for name in ["sec-websocket-protocol", "sec-websocket-extensions", "cookie", "authorization", "origin"] {
+            if let Some(v) = req.headers().get(name) {
+                upstream_req.headers_mut().insert(name, v.clone());
+            }
+        }
+
         // Step 1: Connect to upstream WebSocket FIRST before upgrading client
         // This ensures we can return proper errors if upstream is unavailable
-        let (upstream_ws, _) = match connect_async(&ws_url).await {
+        let (upstream_ws, _) = match connect_async(upstream_req).await {
             Ok(ws) => ws,
             Err(e) => {
                 error!("WS :ws:{} => :ws:{}{} 502 (upstream connection failed: {})", target_host, target_host, uri, e);

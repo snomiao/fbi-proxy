@@ -23,6 +23,14 @@ async function main() {
     return;
   }
 
+  // Force VS Code Web to use its built-in English NLS. The shell and the
+  // `/_vscode/` iframe share this origin, so this localStorage key is read
+  // by the embedded editor. Without it, a non-English OS locale (e.g.
+  // ja_JP) makes VS Code fetch `…/<locale>/nls.messages.js` from
+  // www.vscode-unpkg.net, which is CORS-blocked from a custom origin like
+  // fbi.com and aborts the workbench bootstrap (blank editor, empty tree).
+  localStorage.setItem("vscode.nls.locale", "en");
+
   // Strip a leading slash; everything else is the repo path
   // (e.g. "snomiao/rechrome/tree/main"). Empty path -> open the ws root.
   const rel = decodeURIComponent(location.pathname.replace(/^\/+/, ""));
