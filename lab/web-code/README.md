@@ -57,3 +57,25 @@ fbi-proxy up        # apply ./fbi-proxy.yaml  (namespace from `name:`)
 fbi-proxy ps        # list all active rules across namespaces
 fbi-proxy down      # remove this namespace's rules
 ```
+
+## Gotchas hit while getting VS Code to render behind the proxy
+
+Bringing serve-web up under `https://fbi.com` surfaced several issues. For
+the record, what was actually **load-bearing** vs incidental:
+
+- **WebSocket `permessage-deflate` (the real blocker).** serve-web's
+  management socket negotiates deflate with the browser. The proxy must NOT
+  forward `Sec-WebSocket-Extensions` to its own upstream socket, or upstream
+  frames arrive with the RSV1 bit set and tungstenite drops the connection
+  ("Reserved bits are non-zero") right after the 101 — workbench mounts but
+  the file tree never loads. Fixed in `rs/fbi-proxy.rs`.
+- **NLS locale (load-bearing on a non-English OS).** On a `ja_JP` machine VS
+  Code fetches `…/ja/nls.messages.js` from `vscode-unpkg.net`, which is
+  CORS-blocked from the `fbi.com` origin (and version-mismatched even on
+  127.0.0.1, showing `{0}` placeholders). `shell.ts` pins
+  `vscode.nls.locale=en` (localStorage + cookie) to use the built-in English.
+- **`Host: fbi.com` forward (NOT load-bearing).** Kept because it makes
+  `remoteAuthority` match the public host, but the editor works without it.
+- **Stale browser state.** A profile that previously hit a broken/older
+  serve-web caches a dead workbench; clear site data for the origin if the
+  tree is stubbornly empty after the above are fixed.
