@@ -6,11 +6,18 @@
  * exists & is reasonably fresh:
  *
  *   - missing  -> `git clone --branch <branch> --single-branch
- *                  https://github.com/<owner>/<repo>` into that dir
- *                  (independent clone per branch)
+ *                  --recurse-submodules https://github.com/<owner>/<repo>`
+ *                  into that dir (independent clone per branch)
  *   - present  -> `git fetch --prune`; then `git pull --ff-only` **only
  *                  if** the worktree is clean and fast-forwardable —
  *                  otherwise fetch-only (never clobber local work)
+ *
+ * After a clone, branch creation, or a pull that advanced the checkout, the
+ * cross-platform `setup-repo.sh` runs via Bun Shell (`bun setup-repo.sh`):
+ * it updates submodules and installs dependencies for whichever ecosystem(s)
+ * the repo uses (JS via its pinned lockfile, Rust, Go, Python, Ruby). For any
+ * non-`main` branch we also seed `.env.local` from the sibling `tree/main`
+ * worktree (seed-once: never overwrites one already in the branch).
  *
  * All git invocations use `execFile` (argv array, no shell) and every
  * path segment is validated, so a hostile `owner`/`repo`/`branch` can't
@@ -19,15 +26,21 @@
 
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { copyFile, mkdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 const execFileP = promisify(execFile);
 
 export const WS_ROOT = path.join(os.homedir(), "ws");
 const GIT_TIMEOUT_MS = 120_000;
+// Dependency installs / builds can be slow; give the setup script its own
+// generous budget.
+const SETUP_TIMEOUT_MS = 600_000;
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const SETUP_SCRIPT = path.join(HERE, "setup-repo.sh");
 
 export type RepoSpec = { owner: string; repo: string; branch: string };
 
@@ -133,6 +146,53 @@ async function readStatus(dir: string): Promise<GitStatus> {
 }
 
 /**
+ * Run the cross-platform repo setup script (`setup-repo.sh`) in a worktree
+ * via Bun Shell — `bun <script>` interprets the `.sh` with Bun's own shell,
+ * so it works identically on Windows. The script updates submodules and
+ * installs dependencies for whichever ecosystem(s) the repo uses (JS via the
+ * pinned package manager, Rust, Go, Python, Ruby). Best-effort: a failed or
+ * slow install must not fail provisioning — the editor still opens and the
+ * user can re-run setup from the integrated terminal.
+ */
+async function runRepoSetup(dir: string): Promise<void> {
+  try {
+    await execFileP("bun", [SETUP_SCRIPT], {
+      cwd: dir,
+      timeout: SETUP_TIMEOUT_MS,
+      maxBuffer: 64 * 1024 * 1024,
+    });
+  } catch {
+    // best-effort
+  }
+}
+
+/**
+ * Seed a non-`main` branch worktree's `.env.local` from the sibling
+ * `tree/main` worktree, so feature checkouts inherit the local (gitignored)
+ * env without re-entry. Seed-once: skips if the branch already has one, so
+ * per-branch edits are never clobbered. Always reads `tree/main` directly
+ * (not `../main`) so branches containing `/` resolve correctly.
+ */
+async function seedEnvLocal(spec: RepoSpec, folder: string): Promise<void> {
+  if (spec.branch === "main") return;
+  const src = path.join(
+    WS_ROOT,
+    spec.owner,
+    spec.repo,
+    "tree",
+    "main",
+    ".env.local",
+  );
+  const dest = path.join(folder, ".env.local");
+  if (!existsSync(src) || existsSync(dest)) return;
+  try {
+    await copyFile(src, dest);
+  } catch {
+    // best-effort — a locked/disappearing source must not fail provisioning
+  }
+}
+
+/**
  * Ensure the worktree for `spec` exists and is fresh. Never throws —
  * failures are returned as `{ ok:false, action:"error", error }`.
  */
@@ -158,10 +218,13 @@ export async function provision(spec: RepoSpec): Promise<ProvisionResult> {
         "--branch",
         spec.branch,
         "--single-branch",
+        "--recurse-submodules",
         "--",
         url,
         folder,
       ]);
+      await seedEnvLocal(spec, folder);
+      await runRepoSetup(folder);
       const git2 = await readStatus(folder);
       return { ...base, ok: true, action: "cloned", git: git2 };
     }
@@ -173,6 +236,15 @@ export async function provision(spec: RepoSpec): Promise<ProvisionResult> {
     if (st.hasUpstream && !st.dirty && st.behind > 0 && st.ahead === 0) {
       await git(folder, ["pull", "--ff-only"]);
       action = "pulled";
+    }
+    await seedEnvLocal(spec, folder);
+    if (action === "pulled") {
+      // The checkout advanced — re-run full setup (submodule pointers and
+      // dependency lockfiles may have changed). When nothing was pulled we
+      // do NO submodule/install work: those only change with the checkout,
+      // and running them on every page open makes opens crawl for repos
+      // with many submodules.
+      await runRepoSetup(folder);
     }
     const after = await readStatus(folder);
     return { ...base, ok: true, action, git: after };
@@ -216,8 +288,10 @@ export async function createBranch(spec: RepoSpec): Promise<ProvisionResult> {
     await mkdir(path.dirname(folder), { recursive: true });
     const url = `https://github.com/${spec.owner}/${spec.repo}`;
     // Clone the default branch (no --branch), then branch off it locally.
-    await git(WS_ROOT, ["clone", "--", url, folder]);
+    await git(WS_ROOT, ["clone", "--recurse-submodules", "--", url, folder]);
     await git(folder, ["switch", "-c", spec.branch]);
+    await seedEnvLocal(spec, folder);
+    await runRepoSetup(folder);
     const status = await readStatus(folder);
     return { ...base, ok: true, action: "created", git: status };
   } catch (e: unknown) {
