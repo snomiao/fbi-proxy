@@ -23,13 +23,22 @@ async function main() {
     return;
   }
 
-  // Force VS Code Web to use its built-in English NLS. The shell and the
-  // `/_vscode/` iframe share this origin, so this localStorage key is read
-  // by the embedded editor. Without it, a non-English OS locale (e.g.
-  // ja_JP) makes VS Code fetch `…/<locale>/nls.messages.js` from
-  // www.vscode-unpkg.net, which is CORS-blocked from a custom origin like
-  // fbi.com and aborts the workbench bootstrap (blank editor, empty tree).
+  // Force VS Code Web to use its built-in English NLS. With a non-English
+  // OS locale (e.g. ja_JP) VS Code resolves the locale from `navigator.
+  // language` and fetches `…/<locale>/nls.messages.js` from
+  // www.vscode-unpkg.net. That remote bundle is (a) version-mismatched —
+  // producing `{0}` placeholder strings — and (b) CORS-blocked from a
+  // custom origin like fbi.com, which aborts the whole workbench bootstrap
+  // (blank editor, empty file tree).
+  //
+  // VS Code reads the locale from the `vscode.nls.locale` localStorage key
+  // *and* an eponymous cookie (see `setLocale`/`doSetLocaleToCookie` in the
+  // serve-web workbench bundle). The cookie is the reliable lever here
+  // because it is attached to the iframe's own document request, so the
+  // editor sees `en` before it computes the NLS URL. Shell and `/_vscode/`
+  // are same-origin, so both stores are shared with the iframe.
   localStorage.setItem("vscode.nls.locale", "en");
+  document.cookie = "vscode.nls.locale=en;path=/;max-age=3153600000";
 
   // Strip a leading slash; everything else is the repo path
   // (e.g. "snomiao/rechrome/tree/main"). Empty path -> open the ws root.
