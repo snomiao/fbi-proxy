@@ -6,6 +6,12 @@
 # Same origin means the shell can embed VS Code in an <iframe> with no
 # cross-origin restrictions. Longest-prefix wins, so `/_vscode/` beats `/`.
 #
+# The `_vscode` route forwards the PUBLIC Host (fbi.com) upstream instead of
+# the default `localhost`. `code serve-web` derives its `remoteAuthority`
+# from the Host header; if it sees `localhost` (port stripped) the editor's
+# management WebSocket targets the wrong authority and the file tree never
+# populates. Preserving `fbi.com` keeps the reverse-proxy round-trip intact.
+#
 # Apply with:   fbi-proxy up      (from this directory)
 # Remove with:  fbi-proxy down
 name: web-code
@@ -14,6 +20,8 @@ routes:
     match: fbi.com
     path: /_vscode/
     target: localhost:9999
+    headers:
+      Host: fbi.com
   - name: root
     match: fbi.com
     path: /
