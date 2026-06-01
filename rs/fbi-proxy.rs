@@ -537,11 +537,17 @@ npx fbi-proxy -d fbi.example.com  # Only accept *.fbi.example.com</pre>
 
         // Build the upstream handshake request from the URL (this generates
         // the mandatory Host / Sec-WebSocket-Key / -Version / Upgrade
-        // headers), then forward the subprotocol + auth headers from the
-        // client. Without `Sec-WebSocket-Protocol` some upstreams — notably
-        // VS Code `serve-web`'s `vscode-remote-resource` channel — reject
-        // the handshake with 400, which previously surfaced as a 502 and a
-        // dead file tree behind the proxy.
+        // headers), then forward only the WebSocket subprotocol/extension
+        // negotiation headers from the client.
+        //
+        // Deliberately do NOT forward `Origin`: VS Code `serve-web` accepts
+        // the 101 handshake but then drops the management socket immediately
+        // (101 → silent close, observed as a dead file tree behind the
+        // proxy) when it sees a cross-origin `Origin` like https://fbi.com
+        // against its localhost listener. The direct 127.0.0.1 path works
+        // precisely because it is same-origin. `cookie`/`authorization`
+        // are likewise omitted — serve-web runs `--without-connection-token`
+        // and they only invite extra rejection paths.
         use tokio_tungstenite::tungstenite::client::IntoClientRequest;
         let mut upstream_req = match ws_url.as_str().into_client_request() {
             Ok(r) => r,
@@ -552,10 +558,24 @@ npx fbi-proxy -d fbi.example.com  # Only accept *.fbi.example.com</pre>
                     .body(Full::new(Bytes::from(format!("502 Bad Gateway: invalid WebSocket target: {}", e))).map_err(|e| match e {}).boxed())?);
             }
         };
-        for name in ["sec-websocket-protocol", "sec-websocket-extensions", "cookie", "authorization", "origin"] {
-            if let Some(v) = req.headers().get(name) {
-                upstream_req.headers_mut().insert(name, v.clone());
-            }
+        // Forward the subprotocol, but deliberately NOT
+        // `Sec-WebSocket-Extensions`. If we advertise the client's
+        // `permessage-deflate` to the upstream, serve-web enables
+        // compression and sets the RSV1 bit on its frames — but this is a
+        // separate proxy<->upstream socket whose tungstenite client did
+        // not negotiate deflate, so it rejects those frames with
+        // "Reserved bits are non-zero" and tears the management channel
+        // down right after the 101 (the file tree never loads). Leaving
+        // extensions unset keeps upstream frames uncompressed and valid.
+        if let Some(v) = req.headers().get("sec-websocket-protocol") {
+            upstream_req.headers_mut().insert("sec-websocket-protocol", v.clone());
+        }
+        // Present a same-origin Origin to the upstream so serve-web's
+        // origin check (which would otherwise see https://fbi.com against
+        // its localhost listener) is satisfied through the proxy.
+        let upstream_origin = format!("{}://{}", scheme, authority);
+        if let Ok(v) = HeaderValue::from_str(&upstream_origin) {
+            upstream_req.headers_mut().insert("origin", v);
         }
 
         // Step 1: Connect to upstream WebSocket FIRST before upgrading client
@@ -619,7 +639,7 @@ async fn handle_websocket_forwarding(
         while let Some(msg) = client_stream.next().await {
             match msg {
                 Ok(msg) => {
-                    if let Err(_) = upstream_sink.send(msg).await {
+                    if upstream_sink.send(msg).await.is_err() {
                         break;
                     }
                 }
@@ -628,16 +648,22 @@ async fn handle_websocket_forwarding(
         }
     };
 
-    // Forward messages from upstream to client
+    // Forward messages from upstream to client. A protocol error here is
+    // worth surfacing — it's how the permessage-deflate RSV1 mismatch
+    // ("Reserved bits are non-zero") manifested before we stopped
+    // advertising the client's WS extensions upstream.
     let upstream_to_client = async {
         while let Some(msg) = upstream_stream.next().await {
             match msg {
                 Ok(msg) => {
-                    if let Err(_) = client_sink.send(msg).await {
+                    if client_sink.send(msg).await.is_err() {
                         break;
                     }
                 }
-                Err(_) => break,
+                Err(e) => {
+                    warn!("[ws] upstream recv error: {}", e);
+                    break;
+                }
             }
         }
     };
