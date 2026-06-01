@@ -3,7 +3,14 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import { createBranch, folderFor, parseSpec, provision } from "./provision";
+import {
+  createBranch,
+  folderFor,
+  parseSpec,
+  provision,
+  statusOf,
+  watchStatus,
+} from "./provision";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -82,6 +89,52 @@ export default defineConfig({
           } catch (e) {
             return json(500, { ok: false, error: String(e) });
           }
+        });
+
+        // GET /api/watch/<owner>/<repo>/tree/<branch>
+        //   Server-Sent Events: pushes the worktree's git status on every
+        //   filesystem change (debounced), so the client can show live
+        //   dirty/ahead/behind without polling. One `data: <GitStatus JSON>`
+        //   per change, plus an initial snapshot and `: ping` heartbeats. The
+        //   per-connection watcher is torn down when the client disconnects.
+        server.middlewares.use("/api/watch/", async (req, res) => {
+          const url = new URL(req.url ?? "", "http://localhost");
+          const specPath = decodeURIComponent(url.pathname).replace(
+            /^\/api\/watch\//,
+            "",
+          );
+          const spec = parseSpec(specPath);
+          if (!spec) {
+            res.statusCode = 400;
+            return res.end("expected /api/watch/<owner>/<repo>/tree/<branch>");
+          }
+          res.writeHead(200, {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            Connection: "keep-alive",
+            // disable proxy/middleware buffering of the stream
+            "X-Accel-Buffering": "no",
+          });
+          const send = (status: unknown) =>
+            res.write(`data: ${JSON.stringify(status)}\n\n`);
+
+          const initial = await statusOf(spec);
+          if (initial) send(initial);
+
+          let stop: (() => Promise<void>) | null = null;
+          try {
+            stop = await watchStatus(spec, send);
+          } catch {
+            // worktree not provisioned yet / watcher unavailable — the client
+            // still has the initial snapshot (or none) and simply gets no live
+            // updates; harmless.
+          }
+          // Heartbeat so intermediaries don't drop the idle connection.
+          const hb = setInterval(() => res.write(": ping\n\n"), 25_000);
+          req.on("close", () => {
+            clearInterval(hb);
+            void stop?.();
+          });
         });
       },
     },

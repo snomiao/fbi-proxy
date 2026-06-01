@@ -24,6 +24,7 @@
  * inject options or escape `~/ws`.
  */
 
+import watcher from "@parcel/watcher";
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { copyFile, mkdir } from "node:fs/promises";
@@ -143,6 +144,55 @@ async function readStatus(dir: string): Promise<GitStatus> {
     }
   }
   return { branch, head: head.slice(0, 12), ahead, behind, dirty, hasUpstream };
+}
+
+/** Git status for an existing worktree, or null if it isn't provisioned. */
+export async function statusOf(spec: RepoSpec): Promise<GitStatus | null> {
+  const folder = folderFor(spec);
+  if (!existsSync(path.join(folder, ".git"))) return null;
+  try {
+    return await readStatus(folder);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Watch a worktree and call `onChange` with fresh git status whenever the
+ * working tree or index may have changed — for live dirty/ahead/behind in the
+ * UI without polling. Recursive native watch via @parcel/watcher (FSEvents /
+ * inotify / ReadDirectoryChangesW). node_modules and `.git/objects` churn are
+ * ignored (but `.git/index` & `.git/HEAD` are watched, so stage/commit/
+ * checkout transitions are caught); bursts are debounced before the (fast)
+ * `git status`. Returns an unsubscribe fn. Best-effort: errors are swallowed.
+ */
+export async function watchStatus(
+  spec: RepoSpec,
+  onChange: (status: GitStatus) => void,
+): Promise<() => Promise<void>> {
+  const folder = folderFor(spec);
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const schedule = () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(async () => {
+      try {
+        onChange(await readStatus(folder));
+      } catch {
+        // worktree vanished mid-watch, or a transient git lock — ignore
+      }
+    }, 300);
+  };
+  const sub = await watcher.subscribe(
+    folder,
+    (err) => {
+      if (!err) schedule();
+    },
+    { ignore: ["**/node_modules/**", "**/.git/objects/**", "**/.git/lfs/**"] },
+  );
+  return async () => {
+    if (timer) clearTimeout(timer);
+    await sub.unsubscribe();
+  };
 }
 
 /**

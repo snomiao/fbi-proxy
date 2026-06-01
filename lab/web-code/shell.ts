@@ -16,8 +16,9 @@ import {
   createBranchFromLocation,
   provisionFromLocation,
   statusNote,
+  watchStatus,
   type Config,
-  type ProvisionResult,
+  type GitStatus,
 } from "./provision-client";
 
 function setStatus(msg: HTMLElement, html: string) {
@@ -102,14 +103,21 @@ async function main() {
       offerCreateBranch(msg, frame, rel, branch);
       return;
     }
-    setStatus(
+    // Any other failure (backend down, bad/non-JSON response, network): show
+    // the error but still offer to open VS Code at the expected worktree path,
+    // so a flaky/dead provisioner never fully blocks you.
+    offerOpenAnyway(
       msg,
-      `<strong>Could not provision <code>${esc(rel)}</code></strong><br><pre>${esc(result.error || "unknown error")}</pre>`,
+      frame,
+      rel,
+      result.folder || `${cfg.wsRoot}/${rel}`,
+      result.error,
     );
     return;
   }
 
-  setTitle(rel, result);
+  setTitle(rel, result.git);
+  liveTitle(rel);
   setStatus(msg, `${esc(statusNote(result, rel))}. Opening…`);
   openVscode(frame, msg, result.folder);
 }
@@ -119,11 +127,44 @@ async function main() {
  * worktree has uncommitted changes — a dirty flag visible at a glance across
  * many tabs. `rel` is `<owner>/<repo>/tree/<branch>` (branch may have slashes).
  */
-function setTitle(rel: string, result: ProvisionResult) {
+function setTitle(rel: string, git?: GitStatus) {
   const [ownerRepo, branch = rel] = rel.split("/tree/");
   const [owner = "", repo = ""] = (ownerRepo ?? "").split("/");
-  const dirty = result.git?.dirty ? "! " : "";
+  const dirty = git?.dirty ? "! " : "";
   document.title = `${dirty}${branch}@${repo}\\${owner} - web-code`;
+}
+
+/**
+ * Keep the title's dirty flag live: subscribe to the worktree's git status
+ * over SSE and re-render the title on every change (file edit, stage, commit).
+ */
+function liveTitle(rel: string) {
+  watchStatus(rel, (git) => setTitle(rel, git));
+}
+
+/**
+ * Provisioning failed for a reason we can't auto-handle (backend down, bad
+ * response, network). Surface the error and offer to open VS Code at the
+ * expected worktree path anyway — the editor still works against whatever is
+ * (or isn't) on disk, so a dead/flaky provisioner never fully blocks you.
+ */
+function offerOpenAnyway(
+  msg: HTMLElement,
+  frame: HTMLIFrameElement,
+  rel: string,
+  folder: string,
+  error?: string,
+) {
+  setStatus(
+    msg,
+    `<strong>Could not provision <code>${esc(rel)}</code></strong>` +
+      `<br><pre>${esc(error || "unknown error")}</pre>` +
+      `<button id="open-anyway">Open VS Code anyway</button>` +
+      `<p style="opacity:.6;font-size:.9em">Opens <code>${esc(folder)}</code> directly — may be empty or stale if provisioning didn't finish.</p>`,
+  );
+  msg
+    .querySelector<HTMLButtonElement>("#open-anyway")
+    ?.addEventListener("click", () => openVscode(frame, msg, folder));
 }
 
 /** Render a "Create branch" affordance and wire it to the create API. */
