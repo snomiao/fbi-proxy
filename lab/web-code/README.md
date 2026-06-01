@@ -69,26 +69,47 @@ fetch-only so you can merge/rebase yourself in the editor.
 
 ## Prerequisites
 
-1. A running fbi-proxy daemon with TLS termination (so it can route on path):
-   ```sh
-   fbi-proxy setup --domain fbi.com      # daemon + trusted cert + pf :443
-   ```
-   Ensure `fbi.com` resolves to loopback:
-   ```sh
-   echo '127.0.0.1 fbi.com' | sudo tee -a /etc/hosts
-   ```
-2. The `code` CLI on PATH (VS Code → "Shell Command: Install 'code' command").
+1. **A running fbi-proxy with TLS termination** (path routing needs the proxy
+   to terminate TLS — in CONNECT forward-proxy mode only host/SNI is visible).
+   - **macOS** — one command sets up the daemon, a system-trusted cert, and a
+     `pf` redirect from `:443`:
+     ```sh
+     fbi-proxy setup --domain fbi.com
+     ```
+   - **Windows / Linux** — `setup` is macOS-only; run the proxy directly. Use
+     a port you can bind without elevation (e.g. `8443`), or `443` with
+     admin/root. The cert is self-signed (browser warning unless you trust it):
+     ```sh
+     fbi-proxy --tls --domain fbi.com --port 8443
+     ```
+
+2. **Point `fbi.com` at loopback** by adding a hosts entry (`127.0.0.1 fbi.com`):
+   - macOS / Linux: `/etc/hosts`
+   - Windows: `%SystemRoot%\System32\drivers\etc\hosts` (edit as Administrator)
+
+3. **The `code` CLI on PATH** (VS Code → "Shell Command: Install 'code' command").
 
 ## Run
 
+The launcher reads `./fbi-proxy.yaml` and resolves its config relative to this
+directory, so run it **from this folder** (it has its own `package.json`):
+
 ```sh
 cd lab/web-code
-bun install        # vite
+bun install        # vite + react + xterm (separate from the repo root install)
 bun run dev        # = bun run start.ts
 ```
 
-Then open `https://fbi.com/<user>/<repo>/tree/<branch>` — the shell loads and
-embeds VS Code opened at `~/ws/<user>/<repo>/tree/<branch>`.
+`start.ts` spawns `code serve-web` (:9999), the vite shell (:3001), and the wtx
+PTY server (:3004), then runs `fbi-proxy up` to register the routes (and
+`fbi-proxy down` on exit). It assumes the proxy from step 1 is already running.
+
+Then open `https://fbi.com/<owner>/<repo>/tree/<branch>` — the shell loads and
+embeds VS Code opened at the local worktree under `~/ws/...` (`%USERPROFILE%\ws\...`
+on Windows). Append `?ui=wtx` for the terminal instead.
+
+> If you bound the proxy to a non-standard port in step 1 (e.g. `8443`), the
+> URL is `https://fbi.com:8443/...`.
 
 ## Manual rule management
 

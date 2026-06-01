@@ -53,7 +53,16 @@ const NEEDS_SHELL = process.platform === "win32";
 
 function run(cmd: string, args: string[], label: string): ChildProcess {
   console.log(`[web-code] starting ${label}: ${cmd} ${args.join(" ")}`);
-  const child = spawn(cmd, args, { stdio: "inherit", shell: NEEDS_SHELL });
+  // Pin cwd to this lab dir so vite resolves ./vite.config.ts (and its
+  // /__config + /api/repo middleware, multi-page input, react plugin)
+  // regardless of where the launcher was invoked from. Without this,
+  // `bun lab/web-code/start.ts` from the repo root starts vite with the
+  // repo root as its root → no config, no index.html, every route 404s.
+  const child = spawn(cmd, args, {
+    stdio: "inherit",
+    shell: NEEDS_SHELL,
+    cwd: HERE,
+  });
   child.on("exit", (code) =>
     console.log(`[web-code] ${label} exited (${code})`),
   );
