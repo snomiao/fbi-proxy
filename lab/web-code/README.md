@@ -11,9 +11,12 @@ github.com/<owner>/<repo>/tree/<branch>     (just change the host)
 https://fbi.com/<owner>/<repo>/tree/<branch>
     │  shell calls GET /api/repo/<owner>/<repo>/tree/<branch>
     │    • missing  -> git clone --branch <branch> --single-branch
-    │                  into ~/ws/<owner>/<repo>/tree/<branch>
+    │                  --recurse-submodules into ~/ws/<owner>/<repo>/tree/<branch>
     │    • present  -> git fetch --prune; git pull --ff-only ONLY if the
     │                  worktree is clean & fast-forwardable (else fetch-only)
+    │  then, on a clone / branch-create / fast-forward pull:
+    │    • seed .env.local from the sibling tree/main worktree (non-main only)
+    │    • run setup-repo.sh (Bun Shell): submodules + install deps
     │  -> returns the local folder + git status (ahead/behind/dirty)
     ↓
 https://fbi.com/_vscode/?folder=<local worktree>   -> code serve-web (:9999)
@@ -47,19 +50,49 @@ live via the admin API.
 - `start.ts` launches `code serve-web` + the vite shell, then runs
   `fbi-proxy up` to register the routes (and `fbi-proxy down` on exit).
 - `provision.ts` maps `<owner>/<repo>/tree/<branch>` to
-  `~/ws/<owner>/<repo>/tree/<branch>`, clones/fetches/pulls as above, and
-  reports git status. Every path segment is validated (no traversal, no git
-  option injection) and git runs via `execFile` (no shell).
+  `~/ws/<owner>/<repo>/tree/<branch>`, clones/fetches/pulls as above, then
+  auto-sets-up the worktree (see below), and reports git status. Every path
+  segment is validated (no traversal, no git option injection) and git runs
+  via `execFile` (no shell).
+- `setup-repo.sh` is the cross-platform setup script (see below).
 - `vite.config.ts` serves `/__config` and the `/api/repo/...` provisioning
   endpoint on the shell server.
 - `shell.ts` reads `location.pathname`, calls the API, shows clone/fetch/pull
   status inline, then points the iframe at the folder the server returns.
 
+## Auto-setup
+
+A freshly provisioned worktree is left **ready to use** — no manual install:
+
+- **Submodules** — clones recurse them (`--recurse-submodules`).
+- **`.env.local`** — for any non-`main` branch, seeded from the sibling
+  `tree/main` worktree (seed-once: never overwrites the branch's own), so
+  feature checkouts inherit local, gitignored env without re-entry.
+- **Dependencies** — `setup-repo.sh` runs via **Bun Shell**
+  (`bun setup-repo.sh`), so it works identically on macOS/Linux/Windows
+  without a real `sh`. It updates submodules and installs deps for whichever
+  ecosystem(s) the repo uses, matching the committed lockfile/manifest:
+  - JS/TS — `bun.lock` → bun, `pnpm-lock.yaml` → pnpm, `yarn.lock` → yarn,
+    `package-lock.json` → npm (else bun for a bare `package.json`)
+  - Rust (`Cargo.toml` → `cargo fetch`), Go (`go.mod` → `go mod download`),
+    Python (`uv.lock`/`poetry.lock`/`Pipfile.lock`/`requirements.txt`),
+    Ruby (`Gemfile.lock` → `bundle install`)
+  - Each step is `|| true` — a missing toolchain or one ecosystem's hiccup
+    never aborts the rest, and the editor still opens.
+
+Setup runs only when the checkout changes — on a **clone**, **branch
+creation**, or a **fast-forward pull**. Opens that fetch nothing new skip it
+(submodules and installs only change with the checkout), so repeat opens of an
+existing worktree stay fast even for repos with many submodules.
+
+To re-run setup by hand from a worktree: `bun /path/to/lab/web-code/setup-repo.sh`.
+
 ## API
 
 ```
-GET /api/repo/<owner>/<repo>/tree/<branch>
-  -> { ok, folder, existed, action: cloned|pulled|fetched|none|error,
+GET  /api/repo/<owner>/<repo>/tree/<branch>            (provision)
+POST /api/repo/<owner>/<repo>/tree/<branch>?create=1  (create branch off main)
+  -> { ok, folder, existed, action: cloned|created|pulled|fetched|none|error,
        git: { branch, head, ahead, behind, dirty, hasUpstream } }
 ```
 
