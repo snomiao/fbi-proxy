@@ -1118,7 +1118,7 @@ routes:
         assert_eq!(hit.target, "localhost:9999");
         let hit = match_request(&routes, "fbi.com", "/", Some("fbi.com")).unwrap();
         assert_eq!(hit.target, "localhost:3001");
-        let hit = match_request(&routes, "fbi.com", "/snomiao/repo/tree/main", Some("fbi.com")).unwrap();
+        let hit = match_request(&routes, "fbi.com", "/owner/repo/tree/main", Some("fbi.com")).unwrap();
         assert_eq!(hit.target, "localhost:3001");
     }
 

@@ -47,8 +47,8 @@ bun install        # vite
 bun run dev        # = bun run start.ts
 ```
 
-Then open <https://fbi.com/snomiao/rechrome/tree/main> — the shell loads and
-embeds VS Code opened at `~/ws/snomiao/rechrome/tree/main`.
+Then open `https://fbi.com/<user>/<repo>/tree/<branch>` — the shell loads and
+embeds VS Code opened at `~/ws/<user>/<repo>/tree/<branch>`.
 
 ## Manual rule management
 

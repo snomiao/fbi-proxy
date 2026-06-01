@@ -41,7 +41,7 @@ async function main() {
   document.cookie = "vscode.nls.locale=en;path=/;max-age=3153600000";
 
   // Strip a leading slash; everything else is the repo path
-  // (e.g. "snomiao/rechrome/tree/main"). Empty path -> open the ws root.
+  // (e.g. "<user>/<repo>/tree/<branch>"). Empty path -> open the ws root.
   const rel = decodeURIComponent(location.pathname.replace(/^\/+/, ""));
   const folder = rel
     ? `${cfg.home}/${cfg.wsRoot}/${rel}`
