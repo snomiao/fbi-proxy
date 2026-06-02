@@ -132,7 +132,8 @@ async function main() {
 // uncommitted changes, `↓N`/`↑N` = commits behind/ahead upstream (each shown
 // only when non-zero). While files are actively changing, a braille spinner
 // replaces the flags; after SETTLE_MS of quiet it falls back to the flags.
-const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+// Classic ASCII spinner (renders in every tab font; braille can render blank).
+const SPINNER = ["-", "/", "|", "\\"];
 const SETTLE_MS = 5000;
 const TS = {
   rel: "",
