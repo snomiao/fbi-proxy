@@ -122,9 +122,15 @@ pub fn build_acceptor(domain: &str, cert_dir: &Path) -> Result<TlsAcceptor, BoxE
         .collect::<Result<Vec<_>, _>>()?;
     let key = PrivateKeyDer::from_pem_slice(key_pem.as_bytes())?;
 
-    let config = ServerConfig::builder()
+    let mut config = ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(cert_chain, key)?;
+
+    // Advertise HTTP/2 (with HTTP/1.1 fallback) over ALPN. h2 multiplexes many
+    // requests over a single connection, so a browser opening many tabs/assets
+    // on one origin uses far fewer sockets (HTTP/1.1 caps ~6 per origin).
+    // WebSocket clients negotiate http/1.1 and are served on the h1 path.
+    config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
 
     Ok(TlsAcceptor::from(Arc::new(config)))
 }

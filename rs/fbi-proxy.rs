@@ -10,7 +10,8 @@ use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode, Uri};
 use hyper_tungstenite::{HyperWebsocket, WebSocketStream};
 use hyper_util::client::legacy::{Client, connect::HttpConnector};
-use hyper_util::rt::TokioIo;
+use hyper_util::rt::{TokioExecutor, TokioIo};
+use hyper_util::server::conn::auto;
 use hyper_rustls::HttpsConnector;
 use arc_swap::ArcSwap;
 use log::{error, info, warn};
@@ -279,13 +280,19 @@ npx fbi-proxy -d fbi.example.com  # Only accept *.fbi.example.com</pre>
     }
 
     pub async fn handle_request(&self, req: Request<Incoming>) -> Result<Response<BoxBody>, BoxError> {
-        // Extract host from headers and process according to rules
+        // Extract host for routing. HTTP/1.1 sends it in the Host header;
+        // HTTP/2 sends it in the :authority pseudo-header (which hyper exposes
+        // as the request URI's authority, NOT a Host header). Fall back to the
+        // URI authority so h2 requests route the same as h1 — without this the
+        // host looks empty under h2 and every request is rejected as
+        // "host not allowed".
         let host_header = req
             .headers()
             .get(HOST)
             .and_then(|h| h.to_str().ok())
-            .unwrap_or("localhost")
-            .to_string();
+            .map(|s| s.to_string())
+            .or_else(|| req.uri().authority().map(|a| a.as_str().to_string()))
+            .unwrap_or_else(|| "localhost".to_string());
 
         // Route the host + path via the rule engine.
         let req_path = req.uri().path().to_string();
@@ -464,6 +471,10 @@ npx fbi-proxy -d fbi.example.com  # Only accept *.fbi.example.com</pre>
 
         // Update request URI and headers
         parts.uri = target_uri;
+        // Incoming may be HTTP/2; the upstream client speaks HTTP/1.1. Reset the
+        // version so the forwarded request is well-formed h1 regardless of how
+        // the client connected.
+        parts.version = hyper::Version::HTTP_11;
         parts.headers.insert(HOST, HeaderValue::from_str(&new_host)?);
         // Preserve content-encoding header to maintain compression
 
@@ -1301,8 +1312,14 @@ pub async fn start_proxy_server(
         tokio::task::spawn(async move {
             let service = service_fn(move |req| handle_connection(req, proxy.clone()));
 
-            let mut builder = http1::Builder::new();
+            // auto::Builder serves HTTP/2 or HTTP/1.1 depending on what TLS ALPN
+            // negotiated (h2 multiplexes many requests over one socket — far
+            // fewer connections when a browser has many tabs/assets on one
+            // origin). WebSocket clients negotiate http/1.1 ALPN and so take the
+            // h1 upgrade path via serve_connection_with_upgrades.
+            let mut builder = auto::Builder::new(TokioExecutor::new());
             builder
+                .http1()
                 .preserve_header_case(true)
                 .title_case_headers(true);
 
@@ -1310,7 +1327,9 @@ pub async fn start_proxy_server(
                 Some(a) => match a.accept(stream).await {
                     Ok(tls_stream) => {
                         let io = TokioIo::new(tls_stream);
-                        if let Err(err) = builder.serve_connection(io, service).with_upgrades().await {
+                        if let Err(err) =
+                            builder.serve_connection_with_upgrades(io, service).await
+                        {
                             error!("Error serving TLS connection: {:?}", err);
                         }
                     }
@@ -1320,7 +1339,9 @@ pub async fn start_proxy_server(
                 },
                 None => {
                     let io = TokioIo::new(stream);
-                    if let Err(err) = builder.serve_connection(io, service).with_upgrades().await {
+                    if let Err(err) =
+                        builder.serve_connection_with_upgrades(io, service).await
+                    {
                         error!("Error serving connection: {:?}", err);
                     }
                 }

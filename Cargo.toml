@@ -20,8 +20,8 @@ path = "./rs/fbi-proxy.rs"
 
 [dependencies]
 # Using simpler dependencies that build reliably on Windows
-hyper = { version = "1.7", features = ["http1", "client", "server"] }
-hyper-util = { version = "0.1", features = ["client-legacy", "server", "tokio", "http1"] }
+hyper = { version = "1.7", features = ["http1", "http2", "client", "server"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "server", "server-auto", "tokio", "http1", "http2"] }
 hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "ring", "webpki-tokio", "webpki-roots"] }
 http-body-util = "0.1"
 hyper-tungstenite = "0.18"
