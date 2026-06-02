@@ -112,14 +112,22 @@ export function statusNote(r: ProvisionResult, rel: string): string {
  * unsubscribe fn that closes the stream. Auto-reconnects (EventSource does
  * this for us); malformed frames are ignored.
  */
+/**
+ * A live watch event. `activity` marks any filesystem change (drives the UI
+ * spinner); `status` is the git status, present only when it changed (or as the
+ * initial snapshot).
+ */
+export type LiveEvent = { activity?: boolean; status?: GitStatus };
+
 export function watchStatus(
   rel: string,
-  onStatus: (git: GitStatus) => void,
+  onEvent: (ev: LiveEvent) => void,
 ): () => void {
   const es = new EventSource(`/api/watch/${rel}`);
   es.onmessage = (e) => {
     try {
-      onStatus(JSON.parse(e.data) as GitStatus);
+      // SSE carries a status per message; treat each as activity + status.
+      onEvent({ activity: true, status: JSON.parse(e.data) as GitStatus });
     } catch {
       // ignore heartbeats / malformed frames
     }
@@ -135,7 +143,7 @@ export function watchStatus(
 // unavailable.
 
 let sharedPort: MessagePort | null | undefined;
-const liveHandlers = new Map<string, Set<(g: GitStatus) => void>>();
+const liveHandlers = new Map<string, Set<(ev: LiveEvent) => void>>();
 
 function ensureWorkerPort(): MessagePort | null {
   if (sharedPort !== undefined) return sharedPort;
@@ -143,15 +151,17 @@ function ensureWorkerPort(): MessagePort | null {
   try {
     const worker = new SharedWorker(
       new URL("./status-worker.ts", import.meta.url),
-      { type: "module" },
+      // Named so every tab shares ONE instance — and so bumping the suffix
+      // forces a fresh worker when the worker protocol changes (browsers key
+      // SharedWorkers by URL + name and otherwise reuse a running instance).
+      { type: "module", name: "fbi-web-code-status-v2" },
     );
     const port = worker.port;
     port.onmessage = (e: MessageEvent) => {
-      const { rel, status } = (e.data ?? {}) as {
+      const { rel, activity, status } = (e.data ?? {}) as {
         rel?: string;
-        status?: GitStatus;
-      };
-      if (rel && status) liveHandlers.get(rel)?.forEach((cb) => cb(status));
+      } & LiveEvent;
+      if (rel) liveHandlers.get(rel)?.forEach((cb) => cb({ activity, status }));
     };
     port.start();
     // Release this tab's subscriptions in the worker when the tab goes away.
@@ -169,10 +179,10 @@ function ensureWorkerPort(): MessagePort | null {
  */
 export function watchStatusLive(
   rel: string,
-  onStatus: (git: GitStatus) => void,
+  onEvent: (ev: LiveEvent) => void,
 ): () => void {
   const port = ensureWorkerPort();
-  if (!port) return watchStatus(rel, onStatus); // SSE fallback
+  if (!port) return watchStatus(rel, onEvent); // SSE fallback
 
   let set = liveHandlers.get(rel);
   if (!set) {

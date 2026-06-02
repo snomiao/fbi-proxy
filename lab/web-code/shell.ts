@@ -122,35 +122,97 @@ async function main() {
   openVscode(frame, msg, result.folder);
 }
 
-/**
- * Tab title: `[!] [↓behind] [↑ahead] <branch>@<repo>\<owner> - web-code`.
- * A status glance across many tabs: `!` = uncommitted changes, then VS
- * Code-style sync counts — `↓N` commits behind upstream, `↑N` ahead. Each
- * part shows only when non-zero (ahead/behind need a tracked upstream).
- * `rel` is `<owner>/<repo>/tree/<branch>` (branch may contain slashes).
- */
-function setTitle(rel: string, git?: GitStatus) {
-  const [ownerRepo, branch = rel] = rel.split("/tree/");
+// Tab title controller.
+//
+// Settled: `[!] [↓behind] [↑ahead] <branch>@<repo>\<owner> - web-code` — `!` =
+// uncommitted changes, `↓N`/`↑N` = commits behind/ahead upstream (each shown
+// only when non-zero). While files are actively changing, a braille spinner
+// replaces the flags; after SETTLE_MS of quiet it falls back to the flags.
+const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const SETTLE_MS = 5000;
+const TS = {
+  rel: "",
+  git: undefined as GitStatus | undefined,
+  spinUntil: 0,
+  idx: 0,
+  timer: null as ReturnType<typeof setInterval> | null,
+};
+
+function renderTitle() {
+  const [ownerRepo, branch = TS.rel] = TS.rel.split("/tree/");
   const [owner = "", repo = ""] = (ownerRepo ?? "").split("/");
-  const flags = [
-    git?.dirty ? "!" : "",
-    git && git.behind > 0 ? `↓${git.behind}` : "",
-    git && git.ahead > 0 ? `↑${git.ahead}` : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
-  const prefix = flags ? `${flags} ` : "";
+  // Spinner only animates in the foreground — a frozen frame in a background
+  // tab would look broken, and you can't watch it anyway; backgrounded tabs
+  // show the settled flags (the Slack-style at-a-glance signal).
+  const spinning = Date.now() < TS.spinUntil && !document.hidden;
+  let prefix: string;
+  if (spinning) {
+    prefix = `${SPINNER[TS.idx % SPINNER.length]} `;
+  } else {
+    const flags = [
+      TS.git?.dirty ? "!" : "",
+      TS.git && TS.git.behind > 0 ? `↓${TS.git.behind}` : "",
+      TS.git && TS.git.ahead > 0 ? `↑${TS.git.ahead}` : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    prefix = flags ? `${flags} ` : "";
+  }
   document.title = `${prefix}${branch}@${repo}\\${owner} - web-code`;
 }
 
+function spinTick() {
+  if (Date.now() >= TS.spinUntil || document.hidden) {
+    if (TS.timer) {
+      clearInterval(TS.timer);
+      TS.timer = null;
+    }
+    renderTitle();
+    return;
+  }
+  TS.idx++;
+  renderTitle();
+}
+
+/** A filesystem change happened — spin until SETTLE_MS of quiet. */
+function pokeActivity() {
+  TS.spinUntil = Date.now() + SETTLE_MS;
+  if (!TS.timer && !document.hidden) TS.timer = setInterval(spinTick, 120);
+  renderTitle();
+}
+
+/** Set the (settled) title once, before live updates begin. */
+function setTitle(rel: string, git?: GitStatus) {
+  TS.rel = rel;
+  if (git !== undefined) TS.git = git;
+  renderTitle();
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    if (TS.timer) {
+      clearInterval(TS.timer);
+      TS.timer = null;
+    }
+  } else if (Date.now() < TS.spinUntil && !TS.timer) {
+    TS.timer = setInterval(spinTick, 120);
+  }
+  renderTitle();
+});
+
 /**
- * Keep the title's flags live: subscribe to the worktree's git status (over
- * the shared-worker WebSocket, multiplexed across all tabs) and re-render the
- * title on every change — file edit, stage, commit, fetch. Works while the tab
- * is backgrounded, so the title acts as a Slack-style at-a-glance indicator.
+ * Keep the title live: subscribe to the worktree's status (over the
+ * shared-worker WebSocket, multiplexed across all tabs). Any filesystem change
+ * spins the title; git status changes update the settled flags. Works while
+ * backgrounded, so the title is a Slack-style at-a-glance indicator.
  */
 function liveTitle(rel: string) {
-  watchStatusLive(rel, (git) => setTitle(rel, git));
+  TS.rel = rel;
+  watchStatusLive(rel, (ev) => {
+    if (ev.status) TS.git = ev.status;
+    if (ev.activity) pokeActivity();
+    else renderTitle();
+  });
 }
 
 /**

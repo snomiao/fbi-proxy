@@ -165,8 +165,17 @@ export async function statusOf(spec: RepoSpec): Promise<GitStatus | null> {
  * the first subscriber creates the watcher, the last to leave tears it down,
  * and every change recomputes status once and broadcasts it.
  */
+/**
+ * A watch notification. `activity` is true for every (debounced) filesystem
+ * burst — the signal the UI uses to show a "working" spinner. `status` is
+ * present only when the git status actually changed since the last burst (or
+ * for the snapshot handed to a brand-new subscriber), so the wire stays quiet
+ * when nothing meaningful moved.
+ */
+export type StatusEvent = { activity: boolean; status?: GitStatus };
+
 type WatchEntry = {
-  subscribers: Set<(s: GitStatus) => void>;
+  subscribers: Set<(e: StatusEvent) => void>;
   last?: GitStatus;
   teardown: () => Promise<void>;
 };
@@ -185,7 +194,7 @@ const watches = new Map<string, WatchEntry>();
  */
 export async function watchStatus(
   spec: RepoSpec,
-  onChange: (status: GitStatus) => void,
+  onChange: (e: StatusEvent) => void,
 ): Promise<() => Promise<void>> {
   const folder = folderFor(spec);
   let entry = watches.get(folder);
@@ -193,25 +202,35 @@ export async function watchStatus(
   if (!entry) {
     // Register synchronously (before the async subscribe) so a second
     // concurrent caller joins this entry instead of creating a rival watcher.
-    const subscribers = new Set<(s: GitStatus) => void>();
+    const subscribers = new Set<(e: StatusEvent) => void>();
     entry = { subscribers, teardown: async () => {} };
     watches.set(folder, entry);
 
     let timer: ReturnType<typeof setTimeout> | null = null;
     let lastKey = "";
-    const schedule = () => {
+    let pendingWorkingTree = false; // did a non-.git file change this burst?
+    const schedule = (workingTree: boolean) => {
+      if (workingTree) pendingWorkingTree = true;
       if (timer) clearTimeout(timer);
       timer = setTimeout(async () => {
+        const activity = pendingWorkingTree;
+        pendingWorkingTree = false;
         try {
           const status = await readStatus(folder);
-          // Only broadcast on a real change — editors (VS Code has this very
-          // folder open) churn files constantly, but the git status rarely
-          // moves. Dedup keeps the socket and every tab quiet until it does.
           const key = JSON.stringify(status);
-          if (key === lastKey) return;
-          lastKey = key;
-          entry!.last = status;
-          for (const cb of subscribers) cb(status);
+          const changed = key !== lastKey;
+          if (changed) {
+            lastKey = key;
+            entry!.last = status;
+          }
+          // `activity` (the spinner) fires only on real working-tree edits, not
+          // on .git churn — VS Code has this folder open and pokes .git
+          // constantly (git polling), which would otherwise spin the title
+          // forever. Flags still update on .git changes too (commit, pull).
+          // Stay silent when neither the working tree nor the status moved.
+          if (!activity && !changed) return;
+          for (const cb of subscribers)
+            cb({ activity, status: changed ? status : undefined });
         } catch {
           // worktree vanished mid-watch, or a transient git lock — ignore
         }
@@ -220,8 +239,14 @@ export async function watchStatus(
     try {
       const sub = await watcher.subscribe(
         folder,
-        (err) => {
-          if (!err) schedule();
+        (err, events) => {
+          if (err) return;
+          // A change outside .git is a real edit (spins the title); .git-only
+          // bursts still recompute status but don't spin.
+          const workingTree = events.some(
+            (e) => !/[\\/]\.git[\\/]/.test(e.path),
+          );
+          schedule(workingTree);
         },
         {
           ignore: [
@@ -243,7 +268,8 @@ export async function watchStatus(
   }
 
   entry.subscribers.add(onChange);
-  if (entry.last) onChange(entry.last); // hand the newcomer current state at once
+  // Hand the newcomer current state at once (no `activity` → no spurious spin).
+  if (entry.last) onChange({ activity: false, status: entry.last });
 
   return async () => {
     const e = watches.get(folder);

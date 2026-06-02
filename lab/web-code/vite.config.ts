@@ -73,14 +73,14 @@ export default defineConfig({
             if (!spec) return;
             if (m.type === "sub") {
               if (subs.has(rel)) return;
-              const send = (status: unknown) => {
+              const send = (msg: object) => {
                 if (ws.readyState === ws.OPEN)
-                  ws.send(JSON.stringify({ rel, status }));
+                  ws.send(JSON.stringify({ rel, ...msg }));
               };
               const initial = await statusOf(spec);
-              if (initial) send(initial);
+              if (initial) send({ activity: false, status: initial });
               try {
-                subs.set(rel, await watchStatus(spec, send));
+                subs.set(rel, await watchStatus(spec, (e) => send(e)));
               } catch {
                 // worktree not provisioned / watcher unavailable — initial
                 // snapshot (if any) already sent; no live updates.

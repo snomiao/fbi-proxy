@@ -26,7 +26,7 @@ type GitStatus = {
   hasUpstream: boolean;
 };
 type InMsg = { type: "sub" | "unsub" | "close"; rel?: string };
-type OutMsg = { rel: string; status: GitStatus };
+type OutMsg = { rel: string; activity?: boolean; status?: GitStatus };
 
 const ports = new Set<MessagePort>();
 const portRels = new Map<MessagePort, Set<string>>(); // each port's subscriptions
@@ -59,8 +59,8 @@ function connect(): void {
     } catch {
       return;
     }
-    if (!msg || !msg.rel || !msg.status) return;
-    lastStatus.set(msg.rel, msg.status);
+    if (!msg || !msg.rel) return;
+    if (msg.status) lastStatus.set(msg.rel, msg.status); // cache only real status
     for (const p of ports)
       if (portRels.get(p)?.has(msg.rel)) p.postMessage(msg);
   };
