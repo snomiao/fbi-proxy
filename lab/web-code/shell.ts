@@ -85,6 +85,10 @@ async function main() {
 
   const rel = decodeURIComponent(location.pathname.replace(/^\/+/, ""));
 
+  // Tag this tab with a unique, discoverable name so a duplicate tab can focus
+  // *this* one via window.open("", name). Keyed by repo so it's human-meaningful.
+  window.name = `web-code:${rel}#${Math.random().toString(36).slice(2, 8)}`;
+
   // Bare ws root: open it directly, no provisioning.
   if (!rel) {
     openVscode(frame, msg, cfg.wsRoot);
@@ -136,18 +140,21 @@ const TS = {
   spinUntil: 0,
   idx: 0,
   timer: null as ReturnType<typeof setInterval> | null,
+  dup: false, // this repo is also open in another tab
 };
 
 function renderTitle() {
   const [ownerRepo, branch = TS.rel] = TS.rel.split("/tree/");
   const [owner = "", repo = ""] = (ownerRepo ?? "").split("/");
+  // `⧉` marks a duplicate tab (same repo open elsewhere).
+  const dup = TS.dup ? "⧉ " : "";
   // Spinner only animates in the foreground — a frozen frame in a background
   // tab would look broken, and you can't watch it anyway; backgrounded tabs
   // show the settled flags (the Slack-style at-a-glance signal).
   const spinning = Date.now() < TS.spinUntil && !document.hidden;
   let prefix: string;
   if (spinning) {
-    prefix = `${SPINNER[TS.idx % SPINNER.length]} `;
+    prefix = `${dup}${SPINNER[TS.idx % SPINNER.length]} `;
   } else {
     const flags = [
       TS.git?.dirty ? "!" : "",
@@ -156,7 +163,7 @@ function renderTitle() {
     ]
       .filter(Boolean)
       .join(" ");
-    prefix = flags ? `${flags} ` : "";
+    prefix = `${dup}${flags ? `${flags} ` : ""}`;
   }
   document.title = `${prefix}${branch}@${repo}\\${owner} - web-code`;
 }
@@ -214,12 +221,60 @@ function liveTitle(rel: string) {
   try {
     watchStatusLive(rel, (ev) => {
       if (ev.status) TS.git = ev.status;
+      if (ev.presence != null) {
+        // We're a duplicate when another tab is the canonical (primary) one.
+        const isDup =
+          ev.presence >= 2 &&
+          !!ev.primaryName &&
+          ev.primaryName !== window.name;
+        TS.dup = isDup;
+        if (isDup) showDupBanner(ev.primaryName!);
+        else hideDupBanner();
+      }
       if (ev.activity) pokeActivity();
       else renderTitle();
     });
   } catch (e) {
     console.error("[web-code] live status unavailable:", e);
   }
+}
+
+let dupBanner: HTMLDivElement | null = null;
+
+/**
+ * This repo is already open in another (primary) tab. Offer to jump to it.
+ * Focus works only via a named-window handle — `window.open("", primaryName)`
+ * brings the uniquely-named primary tab forward (plain `window.focus()` on a
+ * background tab is blocked by browsers). Then close this duplicate.
+ */
+function showDupBanner(primaryName: string) {
+  if (dupBanner) return;
+  const b = document.createElement("div");
+  b.style.cssText =
+    "position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:2147483647;" +
+    "background:#3a2d00;color:#ffd479;border:1px solid #6b5300;padding:.4rem .7rem;" +
+    "border-radius:6px;font:13px -apple-system,BlinkMacSystemFont,sans-serif;" +
+    "box-shadow:0 2px 10px rgba(0,0,0,.5)";
+  b.innerHTML =
+    `⧉ Also open in another tab. ` +
+    `<a href="#" id="dup-go" style="color:#ffd479;font-weight:600">Switch &amp; close</a>` +
+    ` · <a href="#" id="dup-x" style="color:#bbb;text-decoration:none">dismiss</a>`;
+  document.body.appendChild(b);
+  dupBanner = b;
+  b.querySelector("#dup-go")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    window.open("", primaryName); // focus the canonical tab by its window.name
+    window.close(); // close this duplicate (works if it was script-opened)
+  });
+  b.querySelector("#dup-x")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    hideDupBanner();
+  });
+}
+
+function hideDupBanner() {
+  dupBanner?.remove();
+  dupBanner = null;
 }
 
 /**

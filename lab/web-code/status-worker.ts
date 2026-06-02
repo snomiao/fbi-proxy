@@ -25,13 +25,28 @@ type GitStatus = {
   dirty: boolean;
   hasUpstream: boolean;
 };
-type InMsg = { type: "sub" | "unsub" | "close"; rel?: string };
-type OutMsg = { rel: string; activity?: boolean; status?: GitStatus };
+type InMsg = { type: "sub" | "unsub" | "close"; rel?: string; name?: string };
+type OutMsg = {
+  rel: string;
+  activity?: boolean;
+  status?: GitStatus;
+  presence?: number; // how many tabs have this repo open
+  primaryName?: string; // window.name of the first (canonical) tab
+};
 
 const ports = new Set<MessagePort>();
 const portRels = new Map<MessagePort, Set<string>>(); // each port's subscriptions
-const refCount = new Map<string, number>(); // rel -> number of interested ports
 const lastStatus = new Map<string, GitStatus>(); // rel -> latest known status
+const portName = new Map<MessagePort, string>(); // port -> its tab's window.name
+const relPorts = new Map<string, MessagePort[]>(); // rel -> subscribed ports, in open order (relPorts[0] = primary)
+
+/** Tell every tab on `rel` how many tabs share it + which is the primary. */
+function broadcastPresence(rel: string): void {
+  const subs = relPorts.get(rel) ?? [];
+  const primaryName = subs.length ? portName.get(subs[0]) : undefined;
+  for (const p of subs)
+    p.postMessage({ rel, presence: subs.length, primaryName });
+}
 
 let ws: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -93,24 +108,33 @@ function addSub(port: MessagePort, rel: string): void {
   }
   if (rels.has(rel)) return;
   rels.add(rel);
-  const n = (refCount.get(rel) ?? 0) + 1;
-  refCount.set(rel, n);
-  if (n === 1) send({ type: "sub", rel }); // first tab interested → tell server
+  let subs = relPorts.get(rel);
+  if (!subs) {
+    subs = [];
+    relPorts.set(rel, subs);
+  }
+  subs.push(port);
+  if (subs.length === 1) send({ type: "sub", rel }); // first tab → tell server
   const cached = lastStatus.get(rel);
   if (cached) port.postMessage({ rel, status: cached }); // hand over current state now
+  broadcastPresence(rel); // tell all tabs the new count + primary
 }
 
 function removeSub(port: MessagePort, rel: string): void {
   const rels = portRels.get(port);
   if (!rels || !rels.has(rel)) return;
   rels.delete(rel);
-  const n = (refCount.get(rel) ?? 1) - 1;
-  if (n <= 0) {
-    refCount.delete(rel);
-    lastStatus.delete(rel);
-    send({ type: "unsub", rel }); // last tab gone → stop the server-side watch
-  } else {
-    refCount.set(rel, n);
+  const subs = relPorts.get(rel);
+  if (subs) {
+    const i = subs.indexOf(port);
+    if (i >= 0) subs.splice(i, 1);
+    if (subs.length === 0) {
+      relPorts.delete(rel);
+      lastStatus.delete(rel);
+      send({ type: "unsub", rel }); // last tab gone → stop the server-side watch
+    } else {
+      broadcastPresence(rel); // primary may have changed; refresh remaining tabs
+    }
   }
 }
 
@@ -118,6 +142,7 @@ function dropPort(port: MessagePort): void {
   const rels = portRels.get(port);
   if (rels) for (const rel of [...rels]) removeSub(port, rel);
   portRels.delete(port);
+  portName.delete(port);
   ports.delete(port);
 }
 
@@ -127,8 +152,10 @@ function dropPort(port: MessagePort): void {
   ports.add(port);
   port.onmessage = (ev: MessageEvent) => {
     const m = ev.data as InMsg;
-    if (m.type === "sub" && m.rel) addSub(port, m.rel);
-    else if (m.type === "unsub" && m.rel) removeSub(port, m.rel);
+    if (m.type === "sub" && m.rel) {
+      if (m.name) portName.set(port, m.name); // remember this tab's window.name
+      addSub(port, m.rel);
+    } else if (m.type === "unsub" && m.rel) removeSub(port, m.rel);
     else if (m.type === "close") dropPort(port);
   };
   port.start();

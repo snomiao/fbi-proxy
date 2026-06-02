@@ -117,7 +117,14 @@ export function statusNote(r: ProvisionResult, rel: string): string {
  * spinner); `status` is the git status, present only when it changed (or as the
  * initial snapshot).
  */
-export type LiveEvent = { activity?: boolean; status?: GitStatus };
+export type LiveEvent = {
+  activity?: boolean;
+  status?: GitStatus;
+  /** How many tabs currently have this repo open (>=2 means duplicates). */
+  presence?: number;
+  /** window.name of the first/canonical tab — target for "switch to it". */
+  primaryName?: string;
+};
 
 export function watchStatus(
   rel: string,
@@ -158,10 +165,12 @@ function ensureWorkerPort(): MessagePort | null {
     );
     const port = worker.port;
     port.onmessage = (e: MessageEvent) => {
-      const { rel, activity, status } = (e.data ?? {}) as {
-        rel?: string;
-      } & LiveEvent;
-      if (rel) liveHandlers.get(rel)?.forEach((cb) => cb({ activity, status }));
+      const { rel, activity, status, presence, primaryName } = (e.data ??
+        {}) as { rel?: string } & LiveEvent;
+      if (rel)
+        liveHandlers
+          .get(rel)
+          ?.forEach((cb) => cb({ activity, status, presence, primaryName }));
     };
     port.start();
     // Release this tab's subscriptions in the worker when the tab goes away.
@@ -190,7 +199,9 @@ export function watchStatusLive(
     liveHandlers.set(rel, set);
   }
   set.add(onEvent);
-  port.postMessage({ type: "sub", rel });
+  // Include this tab's window.name so the worker can name the canonical tab
+  // back to duplicates (for "switch to existing tab").
+  port.postMessage({ type: "sub", rel, name: globalThis.name });
 
   return () => {
     set!.delete(onEvent);
