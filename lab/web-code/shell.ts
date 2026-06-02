@@ -208,11 +208,18 @@ document.addEventListener("visibilitychange", () => {
  */
 function liveTitle(rel: string) {
   TS.rel = rel;
-  watchStatusLive(rel, (ev) => {
-    if (ev.status) TS.git = ev.status;
-    if (ev.activity) pokeActivity();
-    else renderTitle();
-  });
+  // Live status is a non-essential enhancement — never let it block opening the
+  // editor. (A throw here would otherwise skip openVscode and leave the shell
+  // stuck on "Provisioning…".)
+  try {
+    watchStatusLive(rel, (ev) => {
+      if (ev.status) TS.git = ev.status;
+      if (ev.activity) pokeActivity();
+      else renderTitle();
+    });
+  } catch (e) {
+    console.error("[web-code] live status unavailable:", e);
+  }
 }
 
 /**

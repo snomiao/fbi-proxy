@@ -107,7 +107,7 @@ export function statusNote(r: ProvisionResult, rel: string): string {
 
 /**
  * Subscribe to live git status for a worktree over Server-Sent Events
- * (`GET /api/watch/<rel>`). Calls `onStatus` with each pushed `GitStatus`
+ * (`GET /api/watch/<rel>`). Calls `onEvent` with each pushed `GitStatus`
  * (initial snapshot + every debounced filesystem change). Returns an
  * unsubscribe fn that closes the stream. Auto-reconnects (EventSource does
  * this for us); malformed frames are ignored.
@@ -174,7 +174,7 @@ function ensureWorkerPort(): MessagePort | null {
 
 /**
  * Live git status for `rel`, multiplexed over the shared worker's single
- * WebSocket (or per-tab SSE as a fallback). Calls `onStatus` with each pushed
+ * WebSocket (or per-tab SSE as a fallback). Calls `onEvent` with each pushed
  * `GitStatus`. Returns an unsubscribe fn.
  */
 export function watchStatusLive(
@@ -189,11 +189,11 @@ export function watchStatusLive(
     set = new Set();
     liveHandlers.set(rel, set);
   }
-  set.add(onStatus);
+  set.add(onEvent);
   port.postMessage({ type: "sub", rel });
 
   return () => {
-    set!.delete(onStatus);
+    set!.delete(onEvent);
     if (set!.size === 0) {
       liveHandlers.delete(rel);
       port.postMessage({ type: "unsub", rel });
