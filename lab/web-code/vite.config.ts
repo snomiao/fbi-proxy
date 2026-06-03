@@ -28,6 +28,11 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
  * extra proxy rule is needed — they're same-origin with the shell.
  */
 export default defineConfig({
+  // Point vite's env-file loader at a dedicated empty dir so it never picks up
+  // `.env` / `.env.local` (from this lab or the repo root). The shell server is
+  // an embedded dev tool — it runs purely on the system/default process env,
+  // and provisioned worktrees get their own `.env.local` via provision.ts.
+  envDir: path.join(HERE, "no-env"),
   server: {
     port: 3001,
     strictPort: true,
