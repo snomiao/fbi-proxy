@@ -161,7 +161,7 @@ function ensureWorkerPort(): MessagePort | null {
       // Named so every tab shares ONE instance — and so bumping the suffix
       // forces a fresh worker when the worker protocol changes (browsers key
       // SharedWorkers by URL + name and otherwise reuse a running instance).
-      { type: "module", name: "fbi-web-code-status-v2" },
+      { type: "module", name: "fbi-web-code-status-v3" },
     );
     const port = worker.port;
     port.onmessage = (e: MessageEvent) => {

@@ -65,7 +65,7 @@ function connect(): void {
   ws.onopen = () => {
     // Re-subscribe everything currently wanted; the server replies with a
     // fresh snapshot per rel, so a reconnect transparently re-syncs all tabs.
-    for (const rel of refCount.keys()) send({ type: "sub", rel });
+    for (const rel of relPorts.keys()) send({ type: "sub", rel });
   };
   ws.onmessage = (e) => {
     let msg: OutMsg;
