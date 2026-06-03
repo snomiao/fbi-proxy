@@ -116,6 +116,13 @@ async function git(
     cwd,
     timeout: GIT_TIMEOUT_MS,
     maxBuffer: 64 * 1024 * 1024,
+    // Force git's error messages to stable English regardless of the daemon's
+    // locale, so `classifyError`'s regexes match (a zh_TW/ja_JP daemon emits
+    // e.g. "找不到遠端分支" instead of "Remote branch ... not found", which
+    // would otherwise be misclassified as "other" and hide the Create-branch
+    // affordance). LC_ALL=C is load-bearing here — gettext ignores LANGUAGE
+    // once the locale resolves to C. `env` replaces (not merges), so spread.
+    env: { ...process.env, LC_ALL: "C", LANG: "C", LANGUAGE: "C" },
   });
 }
 
