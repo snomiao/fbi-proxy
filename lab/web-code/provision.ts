@@ -146,8 +146,8 @@ async function readStatus(dir: string): Promise<GitStatus> {
         ahead = Number(m[1]);
         behind = Number(m[2]);
       }
-    } else if (line && !line.startsWith("#")) {
-      dirty = true; // any tracked/untracked entry
+    } else if (line && !line.startsWith("#") && !line.startsWith("?")) {
+      dirty = true; // tracked changes only (untracked files don't count)
     }
   }
   return { branch, head: head.slice(0, 12), ahead, behind, dirty, hasUpstream };
@@ -218,30 +218,33 @@ export async function watchStatus(
     let pendingWorkingTree = false; // did a non-.git file change this burst?
     const schedule = (workingTree: boolean) => {
       if (workingTree) pendingWorkingTree = true;
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(async () => {
-        const activity = pendingWorkingTree;
-        pendingWorkingTree = false;
-        try {
-          const status = await readStatus(folder);
-          const key = JSON.stringify(status);
-          const changed = key !== lastKey;
-          if (changed) {
-            lastKey = key;
-            entry!.last = status;
+      // .git-only events (VS Code git polling) must not extend the debounce
+      // window if a timer is already running — otherwise the timer never
+      // settles and the spinner never fires. Working-tree events always
+      // restart the window; .git-only events only start a fresh one.
+      if (workingTree || !timer) {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(async () => {
+          timer = null;
+          const activity = pendingWorkingTree;
+          pendingWorkingTree = false;
+          try {
+            const status = await readStatus(folder);
+            const key = JSON.stringify(status);
+            const changed = key !== lastKey;
+            if (changed) {
+              lastKey = key;
+              entry!.last = status;
+            }
+            // Stay silent when neither the working tree nor the status moved.
+            if (!activity && !changed) return;
+            for (const cb of subscribers)
+              cb({ activity, status: changed ? status : undefined });
+          } catch {
+            // worktree vanished mid-watch, or a transient git lock — ignore
           }
-          // `activity` (the spinner) fires only on real working-tree edits, not
-          // on .git churn — VS Code has this folder open and pokes .git
-          // constantly (git polling), which would otherwise spin the title
-          // forever. Flags still update on .git changes too (commit, pull).
-          // Stay silent when neither the working tree nor the status moved.
-          if (!activity && !changed) return;
-          for (const cb of subscribers)
-            cb({ activity, status: changed ? status : undefined });
-        } catch {
-          // worktree vanished mid-watch, or a transient git lock — ignore
-        }
-      }, 300);
+        }, 300);
+      }
     };
     try {
       const sub = await watcher.subscribe(

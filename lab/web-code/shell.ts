@@ -159,8 +159,8 @@ function renderTitle() {
   } else {
     const flags = [
       TS.git?.dirty ? "!" : "",
-      TS.git && TS.git.behind > 0 ? `↓${TS.git.behind}` : "",
       TS.git && TS.git.ahead > 0 ? `↑${TS.git.ahead}` : "",
+      TS.git && TS.git.behind > 0 ? `↓${TS.git.behind}` : "",
     ]
       .filter(Boolean)
       .join(" ");
