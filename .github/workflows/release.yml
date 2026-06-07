@@ -14,6 +14,7 @@ jobs:
     name: Build proxy binary
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           # Linux: static musl, cross-compiled on ubuntu (free on public repos).
@@ -25,8 +26,9 @@ jobs:
             target: aarch64-unknown-linux-musl
             binary_name: fbi-proxy-linux-arm64
             zig: true
-          # macOS: cross-compiled from ubuntu via cargo-zigbuild — no macOS runner
-          # (10x billing). Clean because deps are rustls/ring (no system TLS/frameworks).
+          # macOS: cross-compiled from ubuntu via cargo-zigbuild + the macOS SDK
+          # (the `notify` crate links CoreFoundation/CoreServices via FSEvents).
+          # No macOS runner (10x billing) needed.
           - os: ubuntu-latest
             target: x86_64-apple-darwin
             binary_name: fbi-proxy-macos-x64
@@ -60,6 +62,12 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-zigbuild
+
+      - name: Fetch macOS SDK (frameworks for cargo-zigbuild)
+        if: contains(matrix.target, 'apple-darwin')
+        run: |
+          curl -sSL https://github.com/joseluisq/macosx-sdks/releases/download/15.5/MacOSX15.5.sdk.tar.xz | tar -xJ
+          echo "SDKROOT=$PWD/MacOSX15.5.sdk" >> "$GITHUB_ENV"
 
       - name: Build binary (cross via zig)
         if: matrix.zig
