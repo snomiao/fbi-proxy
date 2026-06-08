@@ -137,6 +137,28 @@ bun run dev        # = bun run start.ts
 PTY server (:3004), then runs `fbi-proxy up` to register the routes (and
 `fbi-proxy down` on exit). It assumes the proxy from step 1 is already running.
 
+### Run as a managed daemon (oxmgr)
+
+To keep the lab running in the background — auto-restarting on crash and
+restored at boot — register it under [oxmgr](https://github.com/oxmgr) (the same
+process manager `fbi-proxy setup` uses for the proxy):
+
+```sh
+cd lab/web-code
+bun run daemon         # register + start "web-code-lab", persist across reboots
+bun run daemon:status  # oxmgr status web-code-lab
+bun run daemon:logs    # oxmgr logs   web-code-lab
+bun run daemon:stop    # stop + remove the managed process
+```
+
+This wraps the same `start.ts` launcher as **one** oxmgr process, so its three
+child servers and the `fbi-proxy up`/`down` lifecycle stay intact. The launcher
+**retries `fbi-proxy up` until the proxy answers**, so it doesn't matter whether
+oxmgr restores this lab or the `fbi-proxy` daemon first at boot. Don't run
+`bun run dev` and the daemon at the same time — they bind the same fixed ports
+(`--strictPort` makes vite crash on a conflict, which oxmgr would then
+crash-loop).
+
 Then open `https://fbi.com/<owner>/<repo>/tree/<branch>` — the shell loads and
 embeds VS Code opened at the local worktree under `~/ws/...` (`%USERPROFILE%\ws\...`
 on Windows). Append `?ui=wtx` for the terminal instead.

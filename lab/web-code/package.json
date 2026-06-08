@@ -5,7 +5,11 @@
   "description": "fbi-proxy lab: VS Code web + iframe shell under one origin",
   "scripts": {
     "dev": "bun run start.ts",
-    "shell": "vite --port 3001 --strictPort"
+    "shell": "vite --port 3001 --strictPort",
+    "daemon": "bun run daemon.ts",
+    "daemon:stop": "bun run daemon.ts --uninstall",
+    "daemon:logs": "oxmgr logs web-code-lab",
+    "daemon:status": "oxmgr status web-code-lab"
   },
   "devDependencies": {
     "@types/react": "^18",
