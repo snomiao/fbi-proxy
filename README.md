@@ -146,6 +146,19 @@ docker run --rm --name fbi-proxy --network=host snomiao/fbi-proxy
 
 The default does the full macOS integration: registers an [oxmgr](https://github.com/oxmgr)-managed daemon on `:8443`, writes `/etc/pf.anchors/com.snomiao.fbi-proxy` plus a `/Library/LaunchDaemons/com.snomiao.fbi-proxy-pf.plist` that re-applies the pf rule at boot, and adds the cert to the System keychain. Subsequent boots restore everything without any password prompt.
 
+### `serve` — name one service (tailscale-serve style)
+
+```sh
+bunx fbi-proxy serve myapp 3000                 # https://myapp.fbi.com → localhost:3000 (Ctrl+C to stop)
+bunx fbi-proxy serve --bg docs http://127.0.0.1:4000   # keep it after the command exits
+bunx fbi-proxy serve api.example.test 8080      # any host; bare names get .fbi.com (--domain to change)
+bunx fbi-proxy serve up https+insecure://localhost:8443
+bunx fbi-proxy serve myapp off                  # remove one
+bunx fbi-proxy serve status                     # list; `reset` clears all
+```
+
+`serve` runs its own managed Caddy (admin `127.0.0.1:2430`, override with `FBI_SERVE_ADMIN`) with certificates from Caddy's local CA, which it trusts once on first start (`FBI_SERVE_NO_TRUST=1` to skip). It works on macOS, Linux and Windows and doesn't need the Rust proxy. Routes live in `~/.config/fbi-proxy/serve.json`. Every change reloads the whole Caddy config, and Caddy stops when the last route goes away. If `:443` already belongs to another server, `serve` refuses to start rather than shadow it: pass `--https 8443` (sticky) instead. Dev servers that reject unknown `Host` headers (e.g. Vite `allowedHosts`) work with `--rewrite-host`.
+
 ## Using with Caddy (Optional)
 
 FBI-Proxy focuses on the core proxy functionality. For HTTPS and advanced routing, you can use Caddy as a reverse proxy:

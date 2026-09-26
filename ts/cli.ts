@@ -45,6 +45,16 @@ const originalCwd = process.cwd();
   const rawArgs = hideBin(process.argv);
   const firstPositional = rawArgs.find((a) => !a.startsWith("-"));
 
+  // `serve <host> <target>` — tailscale-serve-style exposure via a
+  // managed Caddy; independent of the Rust proxy.
+  if (firstPositional === "serve") {
+    const { runServe } = await import("./serve");
+    const i = rawArgs.indexOf("serve");
+    process.exit(
+      await runServe([...rawArgs.slice(0, i), ...rawArgs.slice(i + 1)]),
+    );
+  }
+
   // Rule-management subcommands (compose-style) talk to a running proxy's
   // admin API; they never start a proxy themselves.
   const { RULES_SUBCOMMANDS, runRulesCli } = await import("./rulesCli");

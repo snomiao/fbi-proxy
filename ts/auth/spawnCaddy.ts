@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { access } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { $ } from "../dSpawn";
 import { downloadCaddy } from "./downloadCaddy";
 
@@ -32,7 +32,7 @@ export async function resolveCaddyBinary(): Promise<string | null> {
   const fromPath = await whichCaddy();
   if (fromPath) return fromPath;
 
-  const downloaded = join(homedir(), ".fbi-proxy", "bin", "caddy");
+  const downloaded = join(homedir(), ".fbi-proxy", "bin", CADDY_EXE);
   if (existsSync(downloaded) && (await isExecutable(downloaded))) {
     return downloaded;
   }
@@ -117,9 +117,17 @@ async function isExecutable(path: string): Promise<boolean> {
   }
 }
 
+const CADDY_EXE = process.platform === "win32" ? "caddy.exe" : "caddy";
+
+// Scan $PATH directly rather than shelling out to `which`, which doesn't
+// exist in cmd/PowerShell on Windows.
 async function whichCaddy(): Promise<string | null> {
-  const result = await $`which caddy`.catch(() => null);
-  if (!result || result.code !== 0) return null;
-  const out = result.out.trim();
-  return out.length > 0 ? out.split("\n")[0]!.trim() : null;
+  for (const dir of (process.env.PATH ?? "").split(delimiter)) {
+    if (!dir) continue;
+    const candidate = join(dir, CADDY_EXE);
+    if (existsSync(candidate) && (await isExecutable(candidate))) {
+      return candidate;
+    }
+  }
+  return null;
 }
