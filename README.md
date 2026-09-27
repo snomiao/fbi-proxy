@@ -146,6 +146,34 @@ docker run --rm --name fbi-proxy --network=host snomiao/fbi-proxy
 
 The default does the full macOS integration: registers an [oxmgr](https://github.com/oxmgr)-managed daemon on `:8443`, writes `/etc/pf.anchors/com.snomiao.fbi-proxy` plus a `/Library/LaunchDaemons/com.snomiao.fbi-proxy-pf.plist` that re-applies the pf rule at boot, and adds the cert to the System keychain. Subsequent boots restore everything without any password prompt.
 
+### `serve` — name one service (tailscale-serve style)
+
+```sh
+bunx fbi-proxy serve myapp 3000                 # https://myapp.fbi.com → localhost:3000 (Ctrl+C to stop)
+bunx fbi-proxy serve --bg docs http://127.0.0.1:4000   # keep it after the command exits
+bunx fbi-proxy serve api.example.test 8080      # any host; bare names get .fbi.com (--domain to change)
+bunx fbi-proxy serve up https+insecure://localhost:8443
+bunx fbi-proxy serve myapp off                  # remove one
+bunx fbi-proxy serve status                     # list; `reset` clears all
+```
+
+`serve` runs its own managed Caddy (admin `127.0.0.1:2430`, override with `FBI_SERVE_ADMIN`) with certificates from Caddy's local CA, which it trusts once on first start (`FBI_SERVE_NO_TRUST=1` to skip). It works on macOS, Linux and Windows and doesn't need the Rust proxy. Routes live in `~/.config/fbi-proxy/serve.json`. Every change reloads the whole Caddy config, and Caddy stops when the last route goes away. If `:443` already belongs to another server, `serve` refuses to start rather than shadow it: pass `--https 8443` (sticky) instead. Dev servers that reject unknown `Host` headers (e.g. Vite `allowedHosts`) work with `--rewrite-host`.
+
+### Running next to `tailscale serve`
+
+Both can use `:443` at the same time because they bind different addresses:
+
+|                   | Binds                                           | Hostnames                    | Cert           | Reachable from    |
+| ----------------- | ----------------------------------------------- | ---------------------------- | -------------- | ----------------- |
+| `fbi-proxy serve` | `127.0.0.1:443` (default `--bind`)              | `*.fbi.com` → `127.0.0.1`    | Caddy local CA | this machine only |
+| `tailscale serve` | tailnet IP only (`100.x.y.z:443`, `fd7a:…:443`) | `<machine>.<tailnet>.ts.net` | Let's Encrypt  | tailnet peers     |
+
+- Tested on Windows (tailscale 1.102): tailscaled holds `100.x:443`, and fbi-proxy still binds `127.0.0.1:443` (or even `0.0.0.0:443`). Loopback traffic reaches fbi-proxy and tailnet traffic reaches tailscaled. `serve`'s "port in use" check only probes loopback, so the tailnet listener doesn't block it.
+- On macOS the `:443 → :8443` pf redirect is `rdr on lo0` only, so tailnet traffic on `utun` is never redirected.
+- On Linux, tailscaled usually handles serve traffic inside its own network stack without binding a host socket (not tested).
+- Keep the default `--bind 127.0.0.1`. With `0.0.0.0`, Caddy is also exposed on the LAN, and if tailscale serve is off, tailnet peers hitting `100.x:443` reach Caddy with a `*.fbi.com` cert that doesn't match.
+- The hostnames don't cross over. `*.fbi.com` resolves to each peer's own loopback, so share things on the tailnet with tailscale serve pointed straight at the port (`tailscale serve --set-path /app http://127.0.0.1:3000`). Chaining tailscale serve → the host-routed Rust proxy doesn't work, because the upstream sees `Host: <machine>.ts.net`, which matches no route.
+
 ## Using with Caddy (Optional)
 
 FBI-Proxy focuses on the core proxy functionality. For HTTPS and advanced routing, you can use Caddy as a reverse proxy:
