@@ -24,6 +24,8 @@ import {
   openSync,
   readFileSync,
   renameSync,
+  rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { lookup } from "node:dns/promises";
@@ -138,7 +140,7 @@ export function buildCaddyConfig(state: ServeState) {
         https_port: state.httpsPort,
         servers: {
           fbi_serve: {
-            listen: [`${state.bind}:${state.httpsPort}`],
+            listen: [hostPort(state.bind, state.httpsPort)],
             routes,
             // No :80 redirect listener — keeps us off ports other servers own.
             automatic_https: { disable_redirects: true },
@@ -155,6 +157,11 @@ export function buildCaddyConfig(state: ServeState) {
       },
     },
   };
+}
+
+/** `host:port`, bracketing IPv6 literals (`::1` → `[::1]:443`). */
+export function hostPort(host: string, port: number): string {
+  return host.includes(":") ? `[${host}]:${port}` : `${host}:${port}`;
 }
 
 function readState(): ServeState {
@@ -177,6 +184,40 @@ function writeState(state: ServeState): void {
   mkdirSync(path.dirname(p), { recursive: true });
   writeFileSync(`${p}.tmp`, JSON.stringify(state, null, 2) + "\n");
   renameSync(`${p}.tmp`, p);
+}
+
+/**
+ * Serialize read → apply → write across concurrent `serve` commands, so two
+ * terminals (or a Ctrl+C racing a new serve) can't drop each other's routes.
+ * A lock older than 30s is assumed to belong to a crashed process.
+ */
+async function withStateLock<T>(fn: () => Promise<T>): Promise<T> {
+  const lock = `${statePath()}.lock`;
+  mkdirSync(path.dirname(lock), { recursive: true });
+  for (let waited = 0; ; waited += 100) {
+    try {
+      mkdirSync(lock);
+      break;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+      try {
+        if (Date.now() - statSync(lock).mtimeMs > 30_000) {
+          rmSync(lock, { recursive: true, force: true });
+          continue;
+        }
+      } catch {
+        continue; // released between mkdir and stat
+      }
+      if (waited >= 15_000)
+        throw new Error(`[serve] timed out waiting for ${lock}`);
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  }
+  try {
+    return await fn();
+  } finally {
+    rmSync(lock, { recursive: true, force: true });
+  }
 }
 
 function isAlive(pid: number): boolean {
@@ -237,7 +278,11 @@ function portAnswers(host: string, port: number): Promise<boolean> {
  */
 async function assertPortFree(state: ServeState): Promise<void> {
   const probeHost =
-    state.bind === "0.0.0.0" || state.bind === "" ? "127.0.0.1" : state.bind;
+    state.bind === "0.0.0.0" || state.bind === ""
+      ? "127.0.0.1"
+      : state.bind === "::"
+        ? "::1"
+        : state.bind;
   if (await portAnswers(probeHost, state.httpsPort)) {
     throw new Error(
       `[serve] ${probeHost}:${state.httpsPort} is already in use by another server ` +
@@ -295,11 +340,16 @@ async function apply(state: ServeState, prev: ServeState): Promise<void> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(buildCaddyConfig(state)),
   });
-  if (!res.ok)
-    throw new Error(
-      `[serve] Caddy rejected the config: ${(await res.text()).trim()}`,
-    );
-  if (!running) await trustLocalCa();
+  if (!res.ok) {
+    const reason = (await res.text()).trim();
+    // Don't leave a Caddy we just started running with no routes; the next
+    // call would take it for a healthy instance and nothing would stop it.
+    if (!running) await adminFetch("/stop", { method: "POST" }).catch(() => {});
+    throw new Error(`[serve] Caddy rejected the config: ${reason}`);
+  }
+  // Marker-guarded, so cheap to call every time — and it still runs when a
+  // retry finds Caddy already up after an earlier failed start.
+  await trustLocalCa();
 }
 
 /** Install Caddy's local CA into the system trust store (idempotent). */
@@ -407,79 +457,25 @@ export async function runServe(rawArgs: string[]): Promise<number> {
 
   const [first, second] = argv._.map(String);
   try {
-    const prev = readState();
-    let state = prune(prev);
-    if (argv.https !== undefined) state.httpsPort = argv.https;
-    if (argv.bind !== undefined) state.bind = argv.bind;
-
-    if (!first || first === "status") {
-      if (JSON.stringify(state) !== JSON.stringify(prev)) {
-        await apply(state, prev);
-        writeState(state);
-      }
-      printStatus(state, argv.json);
-      return 0;
-    }
-    if (first === "reset") {
-      await apply({ ...state, routes: {} }, prev);
-      writeState({ ...state, routes: {} });
-      console.log("[serve] cleared all routes");
-      return 0;
-    }
-    if (!second) {
-      console.error("[serve] usage: fbi-proxy serve <host> <target|off>");
-      return 2;
-    }
-
-    const host = normalizeHost(first, argv.domain);
-    if (second === "off") {
-      if (!state.routes[host]) {
-        console.error(`[serve] ${host} isn't being served`);
-        return 1;
-      }
-      delete state.routes[host];
-      await apply(state, prev);
-      writeState(state);
-      console.log(`[serve] stopped serving ${host}`);
-      return 0;
-    }
-
-    const target = parseTarget(second);
-    const existing = state.routes[host];
-    if (existing?.pid !== undefined && existing.pid !== process.pid) {
-      console.error(
-        `[serve] ${host} is already served by pid ${existing.pid} — stop it or run \`fbi-proxy serve ${first} off\``,
-      );
-      return 1;
-    }
-    state.routes[host] = {
-      target: second,
-      tls: argv.tls as TlsMode,
-      rewriteHost: argv["rewrite-host"] ?? target.tls !== false,
-      ...(argv.bg ? {} : { pid: process.pid }),
-    };
-    await apply(state, prev);
-    writeState(state);
-    if (argv.tls === "internal") await warnIfNotLoopback(host);
-    console.log(`Available at ${urlFor(host, state)}  →  ${second}`);
-    if (argv.bg) {
-      console.log(
-        `Serving in the background. Stop with: fbi-proxy serve ${first} off`,
-      );
-      return 0;
-    }
+    const result = await withStateLock(() => mutate(argv, first, second));
+    if (result.code !== undefined) return result.code;
+    const { host } = result;
     console.log("Press Ctrl+C to stop.");
     return await new Promise<number>((resolve) => {
       const keepAlive = setInterval(() => {}, 1 << 30);
       const stop = async () => {
         clearInterval(keepAlive);
-        const before = readState();
-        const after = prune(before);
-        if (after.routes[host]?.pid === process.pid) delete after.routes[host];
         try {
-          await apply(after, before);
-          writeState(after);
-          console.log(`\n[serve] stopped serving ${host}`);
+          await withStateLock(async () => {
+            const before = readState();
+            const after = prune(before);
+            if (after.routes[host]?.pid === process.pid)
+              delete after.routes[host];
+            await apply(after, before);
+            writeState(after);
+          });
+          console.log(`
+[serve] stopped serving ${host}`);
         } catch (e) {
           console.error(e instanceof Error ? e.message : String(e));
         }
@@ -493,4 +489,89 @@ export async function runServe(rawArgs: string[]): Promise<number> {
     console.error(e instanceof Error ? e.message : String(e));
     return 1;
   }
+}
+
+/**
+ * The locked part of a `serve` command. Returns an exit code, or the host a
+ * foreground serve should keep alive until Ctrl+C.
+ */
+async function mutate(
+  argv: {
+    https?: number;
+    bind?: string;
+    json: boolean;
+    domain: string;
+    tls: string;
+    bg: boolean;
+    "rewrite-host"?: boolean;
+  },
+  first: string | undefined,
+  second: string | undefined,
+): Promise<{ code: number } | { code?: undefined; host: string }> {
+  const prev = readState();
+  let state = prune(prev);
+  if (argv.https !== undefined) state.httpsPort = argv.https;
+  if (argv.bind !== undefined) state.bind = argv.bind;
+
+  if (!first || first === "status") {
+    const changed = JSON.stringify(state) !== JSON.stringify(prev);
+    // After a reboot the --bg routes are still on file but Caddy is gone.
+    const down =
+      Object.keys(state.routes).length > 0 && !(await caddyRunning());
+    if (changed || down) {
+      await apply(state, prev);
+      writeState(state);
+    }
+    printStatus(state, argv.json);
+    return { code: 0 };
+  }
+  if (first === "reset") {
+    await apply({ ...state, routes: {} }, prev);
+    writeState({ ...state, routes: {} });
+    console.log("[serve] cleared all routes");
+    return { code: 0 };
+  }
+  if (!second) {
+    console.error("[serve] usage: fbi-proxy serve <host> <target|off>");
+    return { code: 2 };
+  }
+
+  const host = normalizeHost(first, argv.domain);
+  if (second === "off") {
+    if (!state.routes[host]) {
+      console.error(`[serve] ${host} isn't being served`);
+      return { code: 1 };
+    }
+    delete state.routes[host];
+    await apply(state, prev);
+    writeState(state);
+    console.log(`[serve] stopped serving ${host}`);
+    return { code: 0 };
+  }
+
+  const target = parseTarget(second);
+  const existing = state.routes[host];
+  if (existing?.pid !== undefined && existing.pid !== process.pid) {
+    console.error(
+      `[serve] ${host} is already served by pid ${existing.pid} — stop it or run \`fbi-proxy serve ${first} off\``,
+    );
+    return { code: 1 };
+  }
+  state.routes[host] = {
+    target: second,
+    tls: argv.tls as TlsMode,
+    rewriteHost: argv["rewrite-host"] ?? target.tls !== false,
+    ...(argv.bg ? {} : { pid: process.pid }),
+  };
+  await apply(state, prev);
+  writeState(state);
+  if (argv.tls === "internal") await warnIfNotLoopback(host);
+  console.log(`Available at ${urlFor(host, state)}  →  ${second}`);
+  if (argv.bg) {
+    console.log(
+      `Serving in the background. Stop with: fbi-proxy serve ${first} off`,
+    );
+    return { code: 0 };
+  }
+  return { host };
 }

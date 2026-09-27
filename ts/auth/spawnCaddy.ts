@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { access } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import { homedir } from "node:os";
@@ -125,7 +125,12 @@ async function whichCaddy(): Promise<string | null> {
   for (const dir of (process.env.PATH ?? "").split(delimiter)) {
     if (!dir) continue;
     const candidate = join(dir, CADDY_EXE);
-    if (existsSync(candidate) && (await isExecutable(candidate))) {
+    // statSync().isFile(): a directory named `caddy` passes X_OK on POSIX.
+    if (
+      existsSync(candidate) &&
+      statSync(candidate).isFile() &&
+      (await isExecutable(candidate))
+    ) {
       return candidate;
     }
   }

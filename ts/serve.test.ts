@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildCaddyConfig,
+  hostPort,
   normalizeHost,
   parseTarget,
   type ServeState,
@@ -90,5 +91,13 @@ describe("buildCaddyConfig", () => {
       { subjects: ["a.example.dev"] },
       { issuers: [{ module: "internal" }] },
     ]);
+  });
+});
+
+describe("hostPort", () => {
+  it("brackets IPv6 literals", () => {
+    expect(hostPort("127.0.0.1", 443)).toBe("127.0.0.1:443");
+    expect(hostPort("::1", 443)).toBe("[::1]:443");
+    expect(hostPort("::", 8443)).toBe("[::]:8443");
   });
 });
