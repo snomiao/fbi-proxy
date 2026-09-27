@@ -18,6 +18,11 @@ path = "./rs/lib.rs"
 name = "fbi-proxy"
 path = "./rs/fbi-proxy.rs"
 
+# Short alias, same binary (like agent-yes → ay).
+[[bin]]
+name = "fbip"
+path = "./rs/fbip.rs"
+
 [dependencies]
 # Using simpler dependencies that build reliably on Windows
 hyper = { version = "1.7", features = ["http1", "http2", "client", "server"] }

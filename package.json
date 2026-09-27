@@ -20,7 +20,8 @@
     "url": "git+https://github.com/snomiao/fbi-proxy.git"
   },
   "bin": {
-    "fbi-proxy": "dist/cli.js"
+    "fbi-proxy": "dist/cli.js",
+    "fbip": "dist/cli.js"
   },
   "files": [
     "dist",

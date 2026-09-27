@@ -48,7 +48,7 @@ jobs:
 
       - name: Build binary
         run: |
-          cargo build --release --target ${{ matrix.target }}
+          cargo build --release --bin fbi-proxy --target ${{ matrix.target }}
 
       - name: Prepare binary
         shell: bash
