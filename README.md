@@ -122,6 +122,8 @@ Same shape — public wildcard apex points at _something_ — but `*.fbi.com` po
 
 ## Usage
 
+Installed globally (`npm i -g fbi-proxy` or `cargo install fbi-proxy`), `fbip` is a short alias for `fbi-proxy`.
+
 ```sh
 # Default: one-shot setup → daemon + system-trusted cert + pf :443→:8443.
 # Pops a single macOS auth dialog the first time, then https://fbi.com/
