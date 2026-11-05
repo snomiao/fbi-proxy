@@ -22,7 +22,22 @@ const VSCODE_BASE = "/_vscode/";
 // the user's global ~/.vscode-server).
 const VSCODE_DATA_DIR = path.join(HERE, ".vscode-serve-web");
 
-const children: ChildProcess[] = [];
+// Each long-lived child is supervised: if it dies while we're still up
+// (e.g. vite gets SIGTERM'd, or VS Code's server crashes), we respawn it
+// with exponential backoff instead of leaving a half-dead daemon. Before
+// this, a single vite-shell death left the launcher — and so oxmgr —
+// reporting "running" while :3001 was gone, so the proxy served 502s for
+// the fbi.com apex.
+const children = new Map<string, ChildProcess>();
+let shuttingDown = false;
+
+// Supervisor backoff/guard tuning.
+const BASE_BACKOFF_MS = 1_000;
+const MAX_BACKOFF_MS = 30_000;
+// A child that stayed up at least this long is treated as healthy, so its
+// next death restarts the backoff from zero rather than counting as part of
+// a crash loop.
+const STABLE_MS = 10_000;
 
 /**
  * Pre-seed VS Code's User settings for the embedded serve-web instance.
@@ -51,30 +66,51 @@ function seedVscodeSettings(): void {
 // spawn can't exec directly — it needs a shell. Harmless on Unix.
 const NEEDS_SHELL = process.platform === "win32";
 
-function run(cmd: string, args: string[], label: string): ChildProcess {
-  console.log(`[web-code] starting ${label}: ${cmd} ${args.join(" ")}`);
-  // Pin cwd to this lab dir so vite resolves ./vite.config.ts (and its
-  // /__config + /api/repo middleware, multi-page input, react plugin)
-  // regardless of where the launcher was invoked from. Without this,
-  // `bun lab/web-code/start.ts` from the repo root starts vite with the
-  // repo root as its root → no config, no index.html, every route 404s.
-  const child = spawn(cmd, args, {
-    stdio: "inherit",
-    shell: NEEDS_SHELL,
-    cwd: HERE,
-  });
-  child.on("exit", (code) =>
-    console.log(`[web-code] ${label} exited (${code})`),
-  );
-  children.push(child);
-  return child;
+function supervise(cmd: string, args: string[], label: string): void {
+  let restarts = 0;
+  let startedAt = 0;
+
+  const start = () => {
+    if (shuttingDown) return;
+    console.log(`[web-code] starting ${label}: ${cmd} ${args.join(" ")}`);
+    // Pin cwd to this lab dir so vite resolves ./vite.config.ts (and its
+    // /__config + /api/repo middleware, multi-page input, react plugin)
+    // regardless of where the launcher was invoked from. Without this,
+    // `bun lab/web-code/start.ts` from the repo root starts vite with the
+    // repo root as its root → no config, no index.html, every route 404s.
+    const child = spawn(cmd, args, {
+      stdio: "inherit",
+      shell: NEEDS_SHELL,
+      cwd: HERE,
+    });
+    startedAt = Date.now();
+    children.set(label, child);
+    child.on("exit", (code, signal) => {
+      children.delete(label);
+      if (shuttingDown) return;
+      // A healthy long run clears the crash counter so a one-off death
+      // respawns immediately; only rapid repeat crashes get backed off.
+      if (Date.now() - startedAt >= STABLE_MS) restarts = 0;
+      restarts++;
+      const delay = Math.min(
+        MAX_BACKOFF_MS,
+        BASE_BACKOFF_MS * 2 ** (restarts - 1),
+      );
+      console.log(
+        `[web-code] ${label} exited (${signal ?? code}); respawning #${restarts} in ${delay}ms`,
+      );
+      setTimeout(start, delay);
+    });
+  };
+
+  start();
 }
 
-function fbiProxy(args: string[]): number {
+function fbiProxy(args: string[], opts: { quiet?: boolean } = {}): number {
   // Resolve the repo CLI relative to this lab dir so it works in-tree.
   const cli = path.resolve(HERE, "../../ts/cli.ts");
   const res = spawnSync("bun", [cli, ...args], {
-    stdio: "inherit",
+    stdio: opts.quiet ? "ignore" : "inherit",
     cwd: HERE,
     shell: NEEDS_SHELL,
   });
@@ -84,7 +120,7 @@ function fbiProxy(args: string[]): number {
 async function main() {
   // 1. VS Code web server
   seedVscodeSettings();
-  run(
+  supervise(
     "code",
     [
       "serve-web",
@@ -101,18 +137,35 @@ async function main() {
   );
 
   // 2. vite shell (serves the iframe page, /api, and the wtx terminal page)
-  run("bunx", ["vite", "--port", "3001", "--strictPort"], "vite shell");
+  supervise("bunx", ["vite", "--port", "3001", "--strictPort"], "vite shell");
 
   // 3. wtx PTY WebSocket server (web terminal backend, ?ui=wtx)
-  run("bun", [path.join(HERE, "lib", "wtx", "wtx.mjs")], "wtx terminal");
+  supervise("bun", [path.join(HERE, "lib", "wtx", "wtx.mjs")], "wtx terminal");
 
   // Give them a moment, then register routes.
   await new Promise((r) => setTimeout(r, 1500));
 
-  // 3. apply routes
-  const up = fbiProxy(["up"]);
+  // 3. apply routes — retry until the proxy daemon accepts them. Under oxmgr
+  // at boot, this lab and the fbi-proxy daemon are restored in undefined
+  // order; if we win the race the proxy isn't listening yet, so a single
+  // `up` would fail and the routes would silently never register (the three
+  // child servers would still be "running"). Loop until it sticks.
+  let up = 1;
+  for (let i = 0; i < 60; i++) {
+    up = fbiProxy(["up"], { quiet: true });
+    if (up === 0) break;
+    if (i === 0)
+      console.log("[web-code] waiting for fbi-proxy daemon to accept routes…");
+    await new Promise((r) => setTimeout(r, 1000));
+  }
   if (up !== 0) {
-    console.error("[web-code] `fbi-proxy up` failed — is the proxy running?");
+    // One last loud attempt so the actual CLI error reaches the logs.
+    up = fbiProxy(["up"]);
+  }
+  if (up !== 0) {
+    console.error(
+      "[web-code] `fbi-proxy up` failed after retries — is the proxy running?",
+    );
   } else {
     console.log(
       "[web-code] routes applied.\n" +
@@ -123,9 +176,11 @@ async function main() {
 
   // 4. cleanup on exit
   const shutdown = () => {
+    if (shuttingDown) return;
+    shuttingDown = true; // stop supervisors from respawning during teardown
     console.log("\n[web-code] shutting down…");
     fbiProxy(["down"]);
-    for (const c of children) c.kill();
+    for (const c of children.values()) c.kill();
     process.exit(0);
   };
   process.on("SIGINT", shutdown);

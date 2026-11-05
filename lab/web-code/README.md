@@ -49,12 +49,13 @@ live via the admin API.
   path prefix**. `/api/` and `/__config` ride the `/` route — no extra rule.
 - `start.ts` launches `code serve-web` + the vite shell, then runs
   `fbi-proxy up` to register the routes (and `fbi-proxy down` on exit).
-- `provision.ts` maps `<owner>/<repo>/tree/<branch>` to
+- `codehost/provision` (the shared workspace-provisioning standard, consumed as
+  a dependency) maps `<owner>/<repo>/tree/<branch>` to
   `~/ws/<owner>/<repo>/tree/<branch>`, clones/fetches/pulls as above, then
   auto-sets-up the worktree (see below), and reports git status. Every path
-  segment is validated (no traversal, no git option injection) and git runs
-  via `execFile` (no shell).
-- `setup-repo.sh` is the cross-platform setup script (see below).
+  segment is validated (no traversal, no git option injection) and git runs via
+  `execFile` (no shell). This implementation originated in this lab and was
+  promoted into codehost; the live status watcher is `codehost/provision/watch`.
 - `vite.config.ts` serves `/__config` and the `/api/repo/...` provisioning
   endpoint on the shell server.
 - `shell.ts` reads `location.pathname`, calls the API, shows clone/fetch/pull
@@ -68,8 +69,8 @@ A freshly provisioned worktree is left **ready to use** — no manual install:
 - **`.env.local`** — for any non-`main` branch, seeded from the sibling
   `tree/main` worktree (seed-once: never overwrites the branch's own), so
   feature checkouts inherit local, gitignored env without re-entry.
-- **Dependencies** — `setup-repo.sh` runs via **Bun Shell**
-  (`bun setup-repo.sh`), so it works identically on macOS/Linux/Windows
+- **Dependencies** — codehost/provision's bundled `setup-repo.sh` runs via
+  **Bun Shell**, so it works identically on macOS/Linux/Windows
   without a real `sh`. It updates submodules and installs deps for whichever
   ecosystem(s) the repo uses, matching the committed lockfile/manifest:
   - JS/TS — `bun.lock` → bun, `pnpm-lock.yaml` → pnpm, `yarn.lock` → yarn,
@@ -85,7 +86,7 @@ creation**, or a **fast-forward pull**. Opens that fetch nothing new skip it
 (submodules and installs only change with the checkout), so repeat opens of an
 existing worktree stay fast even for repos with many submodules.
 
-To re-run setup by hand from a worktree: `bun /path/to/lab/web-code/setup-repo.sh`.
+To re-run setup by hand from a worktree: `bun node_modules/codehost/src/provision/setup-repo.sh`.
 
 ## API
 
@@ -136,6 +137,28 @@ bun run dev        # = bun run start.ts
 `start.ts` spawns `code serve-web` (:9999), the vite shell (:3001), and the wtx
 PTY server (:3004), then runs `fbi-proxy up` to register the routes (and
 `fbi-proxy down` on exit). It assumes the proxy from step 1 is already running.
+
+### Run as a managed daemon (oxmgr)
+
+To keep the lab running in the background — auto-restarting on crash and
+restored at boot — register it under [oxmgr](https://github.com/oxmgr) (the same
+process manager `fbi-proxy setup` uses for the proxy):
+
+```sh
+cd lab/web-code
+bun run daemon         # register + start "web-code-lab", persist across reboots
+bun run daemon:status  # oxmgr status web-code-lab
+bun run daemon:logs    # oxmgr logs   web-code-lab
+bun run daemon:stop    # stop + remove the managed process
+```
+
+This wraps the same `start.ts` launcher as **one** oxmgr process, so its three
+child servers and the `fbi-proxy up`/`down` lifecycle stay intact. The launcher
+**retries `fbi-proxy up` until the proxy answers**, so it doesn't matter whether
+oxmgr restores this lab or the `fbi-proxy` daemon first at boot. Don't run
+`bun run dev` and the daemon at the same time — they bind the same fixed ports
+(`--strictPort` makes vite crash on a conflict, which oxmgr would then
+crash-loop).
 
 Then open `https://fbi.com/<owner>/<repo>/tree/<branch>` — the shell loads and
 embeds VS Code opened at the local worktree under `~/ws/...` (`%USERPROFILE%\ws\...`

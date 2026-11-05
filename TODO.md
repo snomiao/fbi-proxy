@@ -96,6 +96,18 @@ Unlocks the full DNS-passthrough pattern: `github.com.{domain}` →
 
 - [x] ~~SQLite session storage~~ — JWT + sessionSecret rotation covers fbi-proxy's threat model. See `feedback_no_premature_db` memory + `lib/fbi-auth/docs/setup.md` → "Revoking sessions".
 
+## `fbi-proxy serve` follow-ups (2026-09-26)
+
+Shipped: `serve <host> <target> [--bg]`, `serve <host> off`, `serve status|reset`, via a managed Caddy (admin 127.0.0.1:2430, config rebuilt from `~/.config/fbi-proxy/serve.json` on every change).
+
+- [ ] **Coexisting with an existing Caddy on :443.** On a machine where another Caddy already owns :443 (e.g. sno-codehost), `serve` refuses and asks for `--https 8443`, so URLs carry a port. Option: detect a foreign Caddy admin API (default :2019) and inject our routes there under `@id fbi-serve:*` instead of running our own. Catch: a Caddyfile-driven Caddy drops API-added routes on its next `caddy reload`, so we'd need to re-apply after reloads, or ask users to `import` a generated snippet.
+- [ ] **Tailscale conflicts.** tailscaled binds :443 on the tailnet IPs only (100.x / fd7a:…), so the managed Caddy's default `127.0.0.1:443` doesn't collide. `--bind 0.0.0.0` / a tailnet IP _would_ collide with `tailscale serve`, and on Windows a specific-address bind can silently shadow a wildcard listener. `assertPortFree` only probes the bind address; probe the tailnet IPs too when binding wide.
+- [ ] **`--tailscale` backend:** `fbi-proxy serve --tailscale myapp 3000` → delegate to `tailscale serve --bg --set-path /myapp` (or `--service svc:myapp`) so the same CLI can publish to the tailnet with real certs.
+- [ ] Target paths (`http://localhost:3000/foo`) and `--set-path` like tailscale; `file:`/directory and `text:` targets.
+- [ ] Start at login: `bunx fbi-proxy serve install` → register the managed Caddy + `--bg` routes with oxmgr / Task Scheduler / launchd so bg serves survive reboots (today they're restored on the next `serve` invocation, not at boot).
+- [ ] Concurrent `serve` invocations race on `serve.json` (read-modify-write). Add a lockfile if it bites.
+- [ ] Verify graceful Ctrl+C cleanup on Windows consoles (only the hard-kill → prune-on-next-command path was exercised).
+
 ## Roadmap (from README — for reference)
 
 ### Next Up 🚧

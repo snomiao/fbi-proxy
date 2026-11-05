@@ -31,7 +31,7 @@ COPY Cargo.toml ./
 # Build with cache mount for better caching
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/app/target \
-    cargo build --release --target x86_64-unknown-linux-musl && \
+    cargo build --release --bin fbi-proxy --target x86_64-unknown-linux-musl && \
     cp /app/target/x86_64-unknown-linux-musl/release/fbi-proxy /app/fbi-proxy
 
 

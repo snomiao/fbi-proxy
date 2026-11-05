@@ -25,7 +25,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Build Rust proxy
-        run: cargo build --release
+        run: cargo build --release --bin fbi-proxy
 
       - uses: oven-sh/setup-bun@v2
 

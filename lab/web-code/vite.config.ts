@@ -4,14 +4,17 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { WebSocketServer, type WebSocket } from "ws";
+// Provisioning is the shared `codehost/provision` standard (moved out of this
+// lab; same API/behavior). The live filesystem watcher lives in the
+// `codehost/provision/watch` subpath so non-watch consumers don't load it.
 import {
   createBranch,
   folderFor,
   parseSpec,
   provision,
   statusOf,
-  watchStatus,
-} from "./provision";
+} from "codehost/provision";
+import { watchStatus } from "codehost/provision/watch";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 

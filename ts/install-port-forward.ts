@@ -7,6 +7,24 @@ import { hideBin } from "yargs/helpers";
 const ANCHOR_NAME = "com.snomiao.fbi-proxy";
 const ANCHOR_FILE = `/etc/pf.anchors/${ANCHOR_NAME}`;
 const PLIST_FILE = `/Library/LaunchDaemons/${ANCHOR_NAME}-pf.plist`;
+const PF_CONF = "/etc/pf.conf";
+
+// macOS only evaluates anchors that are *referenced* from the main ruleset in
+// /etc/pf.conf — loading rules into a named anchor alone is inert. So we splice
+// an `rdr-anchor` reference (right after Apple's, to satisfy pf's
+// translation-before-filter ordering) plus a `load anchor` directive into
+// pf.conf, idempotently, keeping a one-time backup.
+const wirePfConf =
+  `if ! grep -q '${ANCHOR_NAME}' ${PF_CONF}; then ` +
+  `cp ${PF_CONF} ${PF_CONF}.fbi-proxy.bak 2>/dev/null || true; ` +
+  `awk -v a='${ANCHOR_NAME}' -v f='${ANCHOR_FILE}' ` +
+  `'{ print } /^rdr-anchor "com\\.apple/ { print "rdr-anchor \\"" a "\\"" } ` +
+  `END { print "load anchor \\"" a "\\" from \\"" f "\\"" }' ` +
+  `${PF_CONF} > /tmp/pf.conf.fbi.new && cp /tmp/pf.conf.fbi.new ${PF_CONF}; fi`;
+// Strip our two pf.conf lines (both carry the anchor name) on uninstall.
+const unwirePfConf =
+  `grep -v '${ANCHOR_NAME}' ${PF_CONF} > /tmp/pf.conf.fbi.clean ` +
+  `&& cp /tmp/pf.conf.fbi.clean ${PF_CONF} || true`;
 
 const argv = await yargs(hideBin(process.argv))
   .option("from", {
@@ -36,6 +54,8 @@ if (argv.uninstall) {
     `launchctl unload "${PLIST_FILE}" 2>/dev/null`,
     `rm -f "${PLIST_FILE}" "${ANCHOR_FILE}"`,
     `pfctl -a ${ANCHOR_NAME} -F all 2>/dev/null`,
+    unwirePfConf,
+    `/sbin/pfctl -f ${PF_CONF} 2>/dev/null || true`,
     "echo uninstalled",
   ].join("\n");
   runAsRoot(script);
@@ -55,7 +75,7 @@ const plistContent = `<?xml version="1.0" encoding="UTF-8"?>
   <array>
     <string>/bin/sh</string>
     <string>-c</string>
-    <string>/sbin/pfctl -E 2>/dev/null; /sbin/pfctl -a ${ANCHOR_NAME} -f ${ANCHOR_FILE}</string>
+    <string>/sbin/pfctl -E 2>/dev/null; /sbin/pfctl -f ${PF_CONF}</string>
   </array>
   <key>RunAtLoad</key><true/>
   <key>StandardOutPath</key><string>/var/log/${ANCHOR_NAME}-pf.out.log</string>
@@ -88,8 +108,11 @@ const script = [
   `chmod 644 "${PLIST_FILE}"`,
   `launchctl unload "${PLIST_FILE}" 2>/dev/null || true`,
   `launchctl load -w "${PLIST_FILE}"`,
+  wirePfConf,
   `/sbin/pfctl -E 2>/dev/null || true`,
-  `/sbin/pfctl -a ${ANCHOR_NAME} -f "${ANCHOR_FILE}"`,
+  // Load the full main ruleset so the rdr-anchor reference (and our rule via
+  // `load anchor`) actually take effect — not just the inert anchor table.
+  `/sbin/pfctl -f ${PF_CONF}`,
   `echo OK`,
 ].join("\n");
 

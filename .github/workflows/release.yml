@@ -66,16 +66,18 @@ jobs:
       - name: Fetch macOS SDK (frameworks for cargo-zigbuild)
         if: contains(matrix.target, 'apple-darwin')
         run: |
-          curl -sSL https://github.com/joseluisq/macosx-sdks/releases/download/15.5/MacOSX15.5.sdk.tar.xz | tar -xJ
+          curl -sSfL -o sdk.tar.xz https://github.com/joseluisq/macosx-sdks/releases/download/15.5/MacOSX15.5.sdk.tar.xz
+          echo "c15cf0f3f17d714d1aa5a642da8e118db53d79429eb015771ba816aa7c6c1cbd  sdk.tar.xz" | sha256sum -c -
+          tar -xJf sdk.tar.xz
           echo "SDKROOT=$PWD/MacOSX15.5.sdk" >> "$GITHUB_ENV"
 
       - name: Build binary (cross via zig)
         if: matrix.zig
-        run: cargo zigbuild --release --target ${{ matrix.target }}
+        run: cargo zigbuild --release --bin fbi-proxy --target ${{ matrix.target }}
 
       - name: Build binary (native)
         if: ${{ !matrix.zig }}
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release --bin fbi-proxy --target ${{ matrix.target }}
 
       - name: Prepare binary
         shell: bash
@@ -110,8 +112,14 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
-
+      - uses: actions/setup-node@v6
+        with:
+          node-version: latest
+          # Note: Do NOT set registry-url when using semantic-release
+          # It creates an .npmrc that conflicts with semantic-release auth
       - uses: oven-sh/setup-bun@v2
+      - name: Ensure npm 11.5.1+ for OIDC support
+        run: npm install -g npm@latest
       - run: bun install
       # dont build rs here
       - run: bun run build:ts
@@ -138,9 +146,11 @@ jobs:
           chmod +x release/fbi-proxy-macos-arm64 || true
           ls -la release/
 
+      # IMPORTANT: For npm OIDC to work, you must configure Trusted Publisher at:
+      # https://www.npmjs.com/package/fbi-proxy/settings
+      # Provider: GitHub Actions, Org: snomiao, Repo: fbi-proxy, Workflow: release.yml
       - name: Run semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: bunx semantic-release
