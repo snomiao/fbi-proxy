@@ -3,6 +3,7 @@
     // Enable latest features
     "lib": ["ESNext", "DOM", "DOM.Iterable", "DOM.AsyncIterable"],
     "target": "ESNext",
+    "types": ["bun", "node"],
     "module": "ESNext",
     "moduleDetection": "force",
     "jsx": "react-jsx",
@@ -10,7 +11,6 @@
     // Bundler mode
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
-    "downlevelIteration": true,
     // "verbatimModuleSyntax": true,
     "noEmit": true,
     // Best practices

@@ -34,7 +34,7 @@
   "scripts": {
     "build": "bun run build:rs && bun run build:js",
     "build:js": "bun build ./ts/cli.ts --outdir dist --target node",
-    "build:ts": "tsc --noEmit",
+    "build:ts": "tsrs --noEmit",
     "build:rs": "cargo build --release --bin fbi-proxy",
     "dev": "bun --hot ts/cli.ts --dev",
     "dev:rs": "cargo watch -x run",
@@ -86,7 +86,8 @@
     "semantic-release-cargo": "^2.4.2",
     "vite": "^7.3.1",
     "vitest": "^3.2.4",
-    "ws": "^8.19.0"
+    "ws": "^8.19.0",
+    "tsrs": "0.25.0-ts7.1.0-beta"
   },
   "overrides": {
     "@semantic-release/npm": "^13.1.3"
