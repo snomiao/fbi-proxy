@@ -1,0 +1,45 @@
+# Builds the Rust proxy for every platform and packs it the way npm should
+# deliver it: one small package per platform, so an install downloads only the
+# binary for its own machine. Then installs that with bun and with npm on
+# Linux, macOS and Windows (x64 and arm64) and checks that the command runs and
+# the binary arrived.
+#
+# It does not publish. Releases still go through release.yml, which bundles
+# every binary into the one package under release/.
+#
+# The pipeline lives in https://github.com/snomiao/rustify.
+
+name: rust-npm-release
+
+on:
+  pull_request:
+    paths:
+      - "rs/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "ts/buildFbiProxy.ts"
+      - "ts/nativeBinary.ts"
+      - "package.json"
+      - ".github/workflows/rust-npm-release.yml"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build, without a leading v (default: the version in Cargo.toml)"
+        required: false
+        type: string
+
+jobs:
+  build:
+    uses: snomiao/rustify/.github/workflows/rust-npm-build.yml@releases/v1
+    with:
+      manifest: Cargo.toml
+      bins: fbi-proxy
+      version: ${{ inputs.version }}
+      js-build: bun install && bun run build:js
+      # The commands stay JavaScript. Without a foreground flag the CLI starts
+      # the macOS setup, so the check uses --dev, which only reaches yargs.
+      # (--version is no use here: the bundled CLI prints "unknown".)
+      smoke: fbi-proxy --dev --help
+      smoke-expect: Run in development mode
+      smoke-extra: |
+        fbip --dev --help => --with-caddy

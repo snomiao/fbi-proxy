@@ -2,6 +2,7 @@ import { existsSync } from "fs";
 import { chmod } from "fs/promises";
 import path from "path";
 import { getFbiProxyFilename } from "./getProxyFilename";
+import { nativeBinary } from "./nativeBinary";
 import { $ } from "./dSpawn";
 
 if (import.meta.main) {
@@ -34,6 +35,17 @@ export async function getFbiProxyBinary({
   const dockerBinary = "/app/bin/fbi-proxy";
   if (!rebuild && existsSync(dockerBinary)) {
     return dockerBinary;
+  }
+
+  // Installed from npm with the binary for this machine in its own platform
+  // package (fbi-proxy-<os>-<arch>). Absent in a checkout and in releases that
+  // still bundle every binary under ./release, where the lookups below apply.
+  const packaged = rebuild
+    ? null
+    : nativeBinary("fbi-proxy", "fbi-proxy", import.meta.url);
+  if (packaged) {
+    await chmod(packaged, 0o755).catch(() => {});
+    return packaged;
   }
 
   const release = "./release/" + binaryName;
