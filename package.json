@@ -104,5 +104,12 @@
   },
   "trustedDependencies": [
     "oxmgr"
-  ]
+  ],
+  "rustify": {
+    "mode": "hybrid",
+    "bins": {},
+    "extra": [
+      "fbi-proxy"
+    ]
+  }
 }
